@@ -37,30 +37,39 @@ catchment = FileAttachment("catchment.json").json()
 //// CELL: DeSO polygons (1287 areas, Stockholm county) — used by arrival-year choropleth
 desoGeo = FileAttachment("deso_stockholm.json").json()
 
-//// CELL: lookup of first_served year by DeSO id
-firstServedById = new Map(catchment.deso.map(r => [r.id, r.first_served]))
+//// CELL: lookup of first_metro year by DeSO id (back-compat with older first_served name)
+firstServedById = new Map(catchment.deso.map(r => [r.id, r.first_metro ?? r.first_served]))
 
-//// CELL: catchment helpers (pre-computed curve)
-catchmentCurve = {
-  const sorted = catchment.deso.filter(r => r.first_served !== null)
-                                .sort((a, b) => a.first_served - b.first_served);
+//// CELL: Pendeltåg (commuter rail) — 50 stations from Wikidata SPARQL (P16=Q211653)
+pendeltag = FileAttachment("pendeltag.json").json()
+
+//// CELL: catchment curves (metro-only and any-rail)
+buildCatchmentCurve = (records, field) => {
+  const sorted = records.filter(r => (r[field] ?? null) !== null)
+                        .sort((a, b) => a[field] - b[field]);
   const m = new Map();
   let cum = 0, idx = 0;
   for (let y = 1900; y <= 2024; y++) {
-    while (idx < sorted.length && sorted[idx].first_served <= y) { cum += sorted[idx].pop_2023; idx++; }
+    while (idx < sorted.length && sorted[idx][field] <= y) { cum += sorted[idx].pop_2023; idx++; }
     m.set(y, cum);
   }
   return m;
 }
 
+//// CELL: pre-built curves
+curveMetro = buildCatchmentCurve(catchment.deso, 'first_metro')
+
+//// CELL: any-rail curve
+curveAny = buildCatchmentCurve(catchment.deso, 'first_any')
+
 //// CELL: catchment totals
 catchmentTotal = catchment._total_pop_2023
 
 //// CELL: catchment query helpers
-catchmentAt = year => catchmentCurve.get(year) ?? 0
+catchmentAt = (year, mode) => (mode === 'any' ? curveAny : curveMetro).get(year) ?? 0
 
 //// CELL: catchment percent helper
-catchmentPctAt = year => (catchmentAt(year) / catchmentTotal) * 100
+catchmentPctAt = (year, mode) => (catchmentAt(year, mode) / catchmentTotal) * 100
 
 //// CELL: leaflet
 L = require("leaflet@1.9.4/dist/leaflet.js")
@@ -130,6 +139,9 @@ viewof showRings = Inputs.toggle({ label: "Show 1 km Tunnelbana catchment", valu
 //// CELL: arrival-year toggle
 viewof showArrival = Inputs.toggle({ label: "Show metro arrival year (per DeSO neighborhood)", value: false })
 
+//// CELL: Pendeltåg toggle (also flips catchment to any-rail mode)
+viewof showPendeltag = Inputs.toggle({ label: "Show Pendeltåg + use any-rail catchment", value: false })
+
 //// CELL: stat cards
 html`<div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; max-width:600px;">
   <div style="background:#141b2e; border:1px solid rgba(255,255,255,0.07); border-radius:10px; padding:12px 14px;">
@@ -149,12 +161,12 @@ html`<div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; max-
 //// CELL: catchment callout
 html`<div style="background:linear-gradient(160deg, rgba(255,217,137,0.10), rgba(255,217,137,0.02));
                 border:1px solid rgba(255,217,137,0.25); border-radius:10px; padding:16px 18px; margin-top:14px; max-width:600px;">
-  <div style="font-size:9.5px; color:#ffd989; font-weight:600; text-transform:uppercase; letter-spacing:1.3px;">Within 1 km of a Tunnelbana station</div>
+  <div style="font-size:9.5px; color:#ffd989; font-weight:600; text-transform:uppercase; letter-spacing:1.3px;">Within 1 km of ${showPendeltag ? "Tunnelbana or Pendeltåg" : "a Tunnelbana station"}</div>
   <div style="font-size:52px; font-weight:800; line-height:1; margin:6px 0 4px; color:#ffd989; letter-spacing:-2px; font-variant-numeric:tabular-nums;">
-    ${catchmentPctAt(year).toFixed(1)}<sup style="font-size:22px; font-weight:600; vertical-align:super;">%</sup>
+    ${catchmentPctAt(year, showPendeltag ? 'any' : 'metro').toFixed(1)}<sup style="font-size:22px; font-weight:600; vertical-align:super;">%</sup>
   </div>
   <div style="font-size:12px; color:#8a9bb5; line-height:1.4; font-variant-numeric:tabular-nums;">
-    <b style="color:#f0f4fa">${fmt(catchmentAt(year))}</b> of today's <b style="color:#f0f4fa">${fmt(catchmentTotal)}</b> Stockholmers
+    <b style="color:#f0f4fa">${fmt(catchmentAt(year, showPendeltag ? 'any' : 'metro'))}</b> of today's <b style="color:#f0f4fa">${fmt(catchmentTotal)}</b> Stockholmers
   </div>
 </div>`
 
@@ -251,6 +263,34 @@ activeLayer = {
       fillColor: "rgba(255, 217, 137, 1)", fillOpacity: 0.10,
       interactive: false
     }).addTo(layer);
+  }
+  if (showPendeltag) {
+    for (const s of pendeltag.filter(s => s.year <= year)) {
+      L.circle([s.lat, s.lon], {
+        radius: 1000,
+        color: "rgba(127, 184, 168, 0.4)", weight: 0.5,
+        fillColor: "rgba(127, 184, 168, 1)", fillOpacity: 0.10,
+        interactive: false
+      }).addTo(layer);
+    }
+  }
+  layer.addTo(tbMap);
+  invalidation.then(() => tbMap.removeLayer(layer));
+}
+
+//// CELL: side-effect — Pendeltåg square markers (year-reactive, toggleable)
+{
+  if (!showPendeltag) return;
+  const layer = L.layerGroup();
+  const icon = L.divIcon({
+    className: "",
+    html: '<div style="width:10px;height:10px;background:#7fb8a8;border:1.5px solid #fff;border-radius:2px;box-shadow:0 0 4px rgba(127,184,168,0.45);"></div>',
+    iconSize: [10, 10], iconAnchor: [5, 5]
+  });
+  for (const s of pendeltag.filter(s => s.year <= year)) {
+    L.marker([s.lat, s.lon], { icon })
+      .bindTooltip(`<b>${s.name}</b><br>Pendeltåg · Opened ${s.year}`, { direction: "top", offset: [0, -6] })
+      .addTo(layer);
   }
   layer.addTo(tbMap);
   invalidation.then(() => tbMap.removeLayer(layer));

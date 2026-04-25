@@ -7,7 +7,8 @@ Files in this folder:
 | `stations.json` | 100 Tunnelbana stations (Wikidata SPARQL `P16=Q272926`). Authoritative. |
 | `population.json` | Stockholm city + county population 1900–2024 (Wikipedia decades + SCB API annual). |
 | `deso_stockholm.json` | 1287 DeSO neighborhood polygons in Stockholm county + population per area 2010–2023 (SCB WFS + SCB API). ~955 KB simplified GeoJSON. *(Currently unused by the page — kept for future choropleth or density features.)* |
-| `catchment.json` | Per-DeSO 2023 population + `first_served` year (year of first Tunnelbana station to come within 1 km of the DeSO centroid). 71 KB. Used by the catchment % callout. |
+| `catchment.json` | Per-DeSO 2023 population + three `first_*` year fields: `first_metro`, `first_pendeltag`, `first_any`. ~120 KB. Drives the catchment % callout. |
+| `pendeltag.json` | 50 Stockholm Pendeltåg (commuter rail) stations from Wikidata SPARQL (`P16=Q211653`). Used by the "any-rail" toggle. |
 | `stockholm-tunnelbana.md` | **Observable Framework** page — markdown with fenced ```js cells. |
 | `stockholm-tunnelbana.ojs` | **Observable cloud notebook** source — `//// CELL:` blocks for paste-as-cell import. |
 

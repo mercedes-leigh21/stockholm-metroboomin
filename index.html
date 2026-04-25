@@ -135,9 +135,24 @@
     .map-toggle .swatch-strip span {
       width: 6px; height: 12px; border-radius: 1px;
     }
+    .map-toggle .square-icon {
+      width: 12px; height: 12px; border-radius: 2px;
+      background: #7fb8a8; border: 1.5px solid #fff;
+    }
+
+    /* Pendeltåg square markers (commuter rail — visually distinct from metro circles) */
+    .pendeltag-marker {
+      width: 10px; height: 10px;
+      background: #7fb8a8;
+      border: 1.5px solid #fff;
+      border-radius: 2px;
+      box-sizing: border-box;
+      box-shadow: 0 0 4px rgba(127, 184, 168, 0.45);
+    }
 
     #catchment-toggle.active { background: rgba(255,217,137,0.18); border-color: rgba(255,217,137,0.5); color: var(--pop); }
     #arrival-toggle.active { background: rgba(92,255,225,0.15); border-color: rgba(92,255,225,0.45); color: var(--accent); }
+    #pendeltag-toggle.active { background: rgba(127,184,168,0.18); border-color: rgba(127,184,168,0.5); color: #7fb8a8; }
 
     #arrival-legend {
       pointer-events: auto;
@@ -435,6 +450,10 @@
             </span>
             <span id="arrival-toggle-label">Show metro arrival year</span>
           </button>
+          <button id="pendeltag-toggle" class="map-toggle" type="button">
+            <span class="square-icon"></span>
+            <span id="pendeltag-toggle-label">Show Pendeltåg + any-rail catchment</span>
+          </button>
           <button id="catchment-toggle" class="map-toggle" type="button">
             <span class="ring-icon"></span>
             <span id="catchment-toggle-label">Show 1 km catchment</span>
@@ -472,7 +491,7 @@
         </div>
 
         <div class="catchment-card" id="catchment-card">
-          <div class="label">Within 1 km of a Tunnelbana station</div>
+          <div class="label" id="catchment-label">Within 1 km of a Tunnelbana station</div>
           <div class="pct"><span id="catchment-pct">0</span><sup>%</sup></div>
           <div class="sub"><b id="catchment-people">0</b> of today's <b id="catchment-total">2,454,821</b> Stockholmers</div>
           <svg class="spark" id="catchment-spark"></svg>
@@ -628,6 +647,10 @@
     const COUNTY_POP = [{y:1968,p:1427236},{y:1969,p:1453754},{y:1970,p:1477990},{y:1971,p:1486648},{y:1972,p:1485655},{y:1973,p:1485587},{y:1974,p:1489144},{y:1975,p:1493546},{y:1976,p:1500868},{y:1977,p:1512179},{y:1978,p:1519114},{y:1979,p:1524266},{y:1980,p:1528200},{y:1981,p:1535539},{y:1982,p:1544454},{y:1983,p:1551165},{y:1984,p:1562490},{y:1985,p:1578299},{y:1986,p:1593333},{y:1987,p:1606157},{y:1988,p:1617038},{y:1989,p:1629631},{y:1990,p:1641669},{y:1991,p:1654511},{y:1992,p:1669840},{y:1993,p:1686230},{y:1994,p:1708502},{y:1995,p:1725756},{y:1996,p:1744330},{y:1997,p:1762924},{y:1998,p:1783440},{y:1999,p:1803377},{y:2000,p:1823210},{y:2001,p:1838882},{y:2002,p:1850467},{y:2003,p:1860872},{y:2004,p:1872900},{y:2005,p:1889945},{y:2006,p:1918104},{y:2007,p:1949516},{y:2008,p:1981263},{y:2009,p:2019182},{y:2010,p:2054343},{y:2011,p:2091473},{y:2012,p:2127006},{y:2013,p:2163042},{y:2014,p:2198044},{y:2015,p:2231439},{y:2016,p:2269060},{y:2017,p:2308143},{y:2018,p:2344124},{y:2019,p:2377081},{y:2020,p:2391990},{y:2021,p:2415139},{y:2022,p:2440027},{y:2023,p:2454821},{y:2024,p:2473307}];
     const COUNTY_FIRST_YEAR = COUNTY_POP[0].y;
 
+    // Stockholm Pendeltåg (commuter rail) — 50 stations from Wikidata SPARQL (P16=Q211653).
+    // Goes back to 1860 (the original southern main line). Used for the "any-rail" catchment toggle.
+    const PENDELTAG = [{n:"Huddinge",y:1860,lat:59.23639,lon:17.97875},{n:"Stockholms södra",y:1860,lat:59.31369,lon:18.06245},{n:"Södertälje centrums",y:1860,lat:59.19167,lon:17.62778},{n:"Tumba",y:1860,lat:59.19972,lon:17.83583},{n:"Gnesta",y:1861,lat:59.0486,lon:17.3108},{n:"Märsta",y:1866,lat:59.62806,lon:17.86139},{n:"Rotebro",y:1866,lat:59.47639,lon:17.91389},{n:"Upplands Väsby",y:1866,lat:59.52083,lon:17.89917},{n:"Uppsala centralstation",y:1866,lat:59.8574,lon:17.6488},{n:"Sollentuna",y:1869,lat:59.42833,lon:17.94861},{n:"Jakobsbergs",y:1876,lat:59.42403,lon:17.83306},{n:"Kungsängens",y:1876,lat:59.47778,lon:17.75222},{n:"Spånga",y:1876,lat:59.38347,lon:17.89861},{n:"Barkarby",y:1878,lat:59.40472,lon:17.86583},{n:"Älvsjö",y:1879,lat:59.27806,lon:18.01056},{n:"Karlbergs",y:1882,lat:59.33972,lon:18.02972},{n:"Rönninge",y:1888,lat:59.19348,lon:17.75212},{n:"Farsta strands",y:1901,lat:59.23664,lon:18.1033},{n:"Handens",y:1901,lat:59.1675,lon:18.13472},{n:"Hemfosa",y:1901,lat:59.06889,lon:17.97694},{n:"Jordbro",y:1901,lat:59.1425,lon:18.12667},{n:"Nynäsgårds",y:1901,lat:58.91392,lon:17.94257},{n:"Trångsunds",y:1901,lat:59.22778,lon:18.13056},{n:"Västerhaninge",y:1901,lat:59.12319,lon:18.10333},{n:"Ösmo",y:1901,lat:58.98514,lon:17.90278},{n:"Kallhälls",y:1907,lat:59.45292,lon:17.80611},{n:"Norrvikens",y:1907,lat:59.45861,lon:17.92417},{n:"Uttrans",y:1908,lat:59.19722,lon:17.79917},{n:"Solna",y:1911,lat:59.365,lon:18.01028},{n:"Stuvsta",y:1918,lat:59.25389,lon:17.99639},{n:"Södertälje hamns",y:1921,lat:59.17917,lon:17.64722},{n:"Östertälje",y:1921,lat:59.18528,lon:17.65806},{n:"Helenelunds",y:1922,lat:59.40917,lon:17.96222},{n:"Häggviks",y:1932,lat:59.44417,lon:17.93222},{n:"Skogås",y:1932,lat:59.21955,lon:18.15322},{n:"Ulriksdals",y:1966,lat:59.38083,lon:18.00028},{n:"Tullinge",y:1969,lat:59.20528,lon:17.90361},{n:"Krigslida",y:1980,lat:59.10944,lon:18.06667},{n:"Flemingsbergs",y:1987,lat:59.218,lon:17.9457},{n:"Södertälje syd",y:1995,lat:59.1625,lon:17.64556},{n:"Bålsta",y:1996,lat:59.56889,lon:17.53278},{n:"Arlanda central",y:1999,lat:59.64959,lon:17.92912},{n:"Bro",y:2001,lat:59.51217,lon:17.63324},{n:"Årstaberg",y:2006,lat:59.30004,lon:18.02909},{n:"Gröndalsvikens",y:2008,lat:58.89918,lon:17.93188},{n:"Sundbybergs",y:2013,lat:59.3607,lon:17.9721},{n:"Stockholm City",y:2017,lat:59.33111,lon:18.05944},{n:"Stockholm Odenplan",y:2017,lat:59.34344,lon:18.04588},{n:"Vega",y:2019,lat:59.18583,lon:18.13556}];
+
     // Annotations on the chart — key historical moments
     const ANNOTATIONS = [
       {y:1933, label:"Premetro tunnel"},
@@ -670,6 +693,7 @@
       const map = initMap();
       const charts = initCharts();
       const catchment = initCatchment(map);
+      const pendeltag = initPendeltag(map);
       initArrivalLayer(map);  // self-contained, no per-year update needed
       let currentYear = MIN_YEAR;
 
@@ -680,6 +704,7 @@
         updateStats(y);
         updateCharts(charts, y);
         catchment.update(y);
+        pendeltag.update(y);
       }
 
       const slider = document.getElementById('year-slider');
@@ -869,15 +894,19 @@
       const pctEl     = document.getElementById('catchment-pct');
       const peopleEl  = document.getElementById('catchment-people');
       const totalEl   = document.getElementById('catchment-total');
+      const cardLabel = document.getElementById('catchment-label');
       const sparkSvg  = document.getElementById('catchment-spark');
       let ringsEnabled = false;
       let ringLayer = null;
-      let catchmentData = null;       // {_total_pop_2023, deso: [{id, pop_2023, first_served}]}
-      let curveByYear = null;         // year → served count (precomputed once)
+      let catchmentData = null;       // {_total_pop_2023, deso: [{id, pop_2023, first_metro, first_pendeltag, first_any}]}
+      let curveMetro = null;          // year → cumulative served count (metro only)
+      let curveAny   = null;          // year → cumulative served count (any rail)
       let totalPop = 0;
       let loadingPromise = null;
       let lastYear = MIN_YEAR;
       let sparkBuilt = false;
+      // External flag toggled by the Pendeltåg control (radio-style)
+      let mode = 'metro';
 
       async function loadData() {
         if (loadingPromise) return loadingPromise;
@@ -886,7 +915,8 @@
           .then(json => {
             catchmentData = json;
             totalPop = json._total_pop_2023;
-            curveByYear = computeCurve(json.deso);
+            curveMetro = computeCurve(json.deso, 'first_metro');
+            curveAny   = computeCurve(json.deso, 'first_any');
             totalEl.textContent = totalPop.toLocaleString('sv-SE');
             return json;
           })
@@ -894,17 +924,16 @@
         return loadingPromise;
       }
 
-      function computeCurve(records) {
-        // For each year, sum pop_2023 of DeSOs whose first_served is <= year.
-        // Pre-sort so we can sweep linearly: O(n log n) once.
+      function computeCurve(records, field) {
+        // For each year, sum pop_2023 of DeSOs whose first-served year (in `field`) is <= year.
         const sorted = records
-          .filter(r => r.first_served !== null)
+          .filter(r => r[field] !== null && r[field] !== undefined)
           .slice()
-          .sort((a, b) => a.first_served - b.first_served);
+          .sort((a, b) => a[field] - b[field]);
         const curve = new Map();
         let cum = 0, idx = 0;
         for (let y = MIN_YEAR; y <= MAX_YEAR; y++) {
-          while (idx < sorted.length && sorted[idx].first_served <= y) {
+          while (idx < sorted.length && sorted[idx][field] <= y) {
             cum += sorted[idx].pop_2023;
             idx++;
           }
@@ -913,65 +942,88 @@
         return curve;
       }
 
+      function activeCurve() { return mode === 'any' ? curveAny : curveMetro; }
+
       function buildSpark() {
-        if (sparkBuilt || !curveByYear) return;
+        if (sparkBuilt || !activeCurve()) return;
         const w = sparkSvg.getBoundingClientRect().width || 380;
         const h = 36;
         sparkSvg.setAttribute('viewBox', `0 0 ${w} ${h}`);
         const xs = d3.scaleLinear().domain([MIN_YEAR, MAX_YEAR]).range([2, w - 2]);
         const ys = d3.scaleLinear().domain([0, totalPop]).range([h - 2, 4]);
-        const series = [];
-        for (let y = MIN_YEAR; y <= MAX_YEAR; y++) series.push({ y, v: curveByYear.get(y) });
-        const area = d3.area().x(d => xs(d.y)).y0(h).y1(d => ys(d.v)).curve(d3.curveStepAfter);
-        const line = d3.line().x(d => xs(d.y)).y(d => ys(d.v)).curve(d3.curveStepAfter);
         const svg = d3.select(sparkSvg);
         svg.selectAll('*').remove();
-        svg.append('path').attr('d', area(series)).attr('fill', '#ffd989').attr('fill-opacity', 0.18);
-        svg.append('path').attr('d', line(series)).attr('fill', 'none').attr('stroke', '#ffd989').attr('stroke-width', 1.5);
+        // Two area paths — only one shows at a time depending on mode
+        svg.append('path').attr('class', 'spark-area').attr('fill', '#ffd989').attr('fill-opacity', 0.18);
+        svg.append('path').attr('class', 'spark-line').attr('fill', 'none').attr('stroke', '#ffd989').attr('stroke-width', 1.5);
         svg.append('line').attr('class', 'spark-playhead')
           .attr('y1', 0).attr('y2', h).attr('stroke', '#fff').attr('stroke-opacity', 0.5).attr('stroke-dasharray', '2,2');
         svg.append('circle').attr('class', 'spark-dot').attr('r', 3).attr('fill', '#ffe45c').attr('stroke', '#fff').attr('stroke-width', 1);
         sparkBuilt = true;
-        // expose elements for live update
-        sparkSvg._xs = xs; sparkSvg._ys = ys;
+        sparkSvg._xs = xs; sparkSvg._ys = ys; sparkSvg._h = h;
+        renderSparkPath();
+      }
+
+      function renderSparkPath() {
+        if (!sparkBuilt) return;
+        const xs = sparkSvg._xs, ys = sparkSvg._ys, h = sparkSvg._h;
+        const curve = activeCurve();
+        const series = [];
+        for (let y = MIN_YEAR; y <= MAX_YEAR; y++) series.push({ y, v: curve.get(y) ?? 0 });
+        const area = d3.area().x(d => xs(d.y)).y0(h).y1(d => ys(d.v)).curve(d3.curveStepAfter);
+        const line = d3.line().x(d => xs(d.y)).y(d => ys(d.v)).curve(d3.curveStepAfter);
+        d3.select(sparkSvg).select('.spark-area').attr('d', area(series));
+        d3.select(sparkSvg).select('.spark-line').attr('d', line(series));
       }
 
       function updateSpark(year) {
         if (!sparkBuilt) return;
         const xs = sparkSvg._xs, ys = sparkSvg._ys;
         const x = xs(year);
-        const v = curveByYear.get(year) ?? 0;
+        const v = activeCurve().get(year) ?? 0;
         d3.select(sparkSvg).select('.spark-playhead').attr('x1', x).attr('x2', x);
         d3.select(sparkSvg).select('.spark-dot').attr('cx', x).attr('cy', ys(v));
       }
 
       function update(year) {
         lastYear = year;
-        if (!curveByYear) return;
-        const served = curveByYear.get(year) ?? 0;
+        const curve = activeCurve();
+        if (!curve) return;
+        const served = curve.get(year) ?? 0;
         const pct = totalPop > 0 ? (served / totalPop) * 100 : 0;
         pctEl.textContent = pct.toFixed(1);
         peopleEl.textContent = served.toLocaleString('sv-SE');
+        cardLabel.textContent = mode === 'any'
+          ? 'Within 1 km of Tunnelbana or Pendeltåg'
+          : 'Within 1 km of a Tunnelbana station';
         if (!sparkBuilt) buildSpark();
         updateSpark(year);
         if (ringsEnabled) renderRings(year);
       }
 
+      // Called from outside (initPendeltag) when the user toggles Pendeltåg
+      function setMode(newMode) {
+        if (mode === newMode) return;
+        mode = newMode;
+        renderSparkPath();
+        update(lastYear);
+      }
+
       function renderRings(year) {
         if (ringLayer) { mapInfo.map.removeLayer(ringLayer); ringLayer = null; }
         const open = STATIONS.filter(s => s.y <= year);
-        if (open.length === 0) return;
+        const openPdt = mode === 'any' ? PENDELTAG.filter(s => s.y <= year) : [];
+        if (open.length === 0 && openPdt.length === 0) return;
         ringLayer = L.layerGroup();
-        for (const s of open) {
-          L.circle([s.lat, s.lon], {
-            radius: RADIUS_M,
-            color: 'rgba(255, 217, 137, 0.4)', weight: 0.5,
-            fillColor: 'rgba(255, 217, 137, 1)', fillOpacity: 0.10,
-            interactive: false
-          }).addTo(ringLayer);
-        }
+        const drawRing = (lat, lon, color) => L.circle([lat, lon], {
+          radius: RADIUS_M,
+          color: color, weight: 0.5,
+          fillColor: color, fillOpacity: 0.10,
+          interactive: false
+        }).addTo(ringLayer);
+        for (const s of open) drawRing(s.lat, s.lon, 'rgba(255, 217, 137, 1)');
+        for (const s of openPdt) drawRing(s.lat, s.lon, 'rgba(127, 184, 168, 1)');
         ringLayer.addTo(mapInfo.map);
-        // Push under markers but above tiles
         ringLayer.eachLayer(lyr => lyr.bringToBack && lyr.bringToBack());
       }
 
@@ -997,6 +1049,9 @@
 
       toggleBtn.addEventListener('click', () => ringsEnabled ? disableRings() : enableRings());
 
+      // Listen for Pendeltåg toggle to switch catchment mode
+      window.addEventListener('pendeltag-toggled', e => setMode(e.detail ? 'any' : 'metro'));
+
       // Auto-load data so the callout populates without needing the toggle
       loadData().catch(err => {
         // Graceful fallback for file:// — show a polite "—" instead of 0
@@ -1008,6 +1063,56 @@
       });
 
       return { update };
+    }
+
+    // ============================================================
+    // PENDELTÅG layer — toggleable, square markers, also flips catchment mode
+    // ============================================================
+    function initPendeltag(mapInfo) {
+      const toggleBtn = document.getElementById('pendeltag-toggle');
+      const labelEl   = document.getElementById('pendeltag-toggle-label');
+      let enabled = false;
+      let layer = null;
+
+      function makeIcon() {
+        return L.divIcon({
+          className: '',
+          html: '<div class="pendeltag-marker"></div>',
+          iconSize: [10, 10],
+          iconAnchor: [5, 5],
+        });
+      }
+
+      function renderForYear(year) {
+        if (layer) { mapInfo.map.removeLayer(layer); layer = null; }
+        if (!enabled) return;
+        layer = L.layerGroup();
+        const icon = makeIcon();
+        for (const s of PENDELTAG) {
+          if (s.y > year) continue;
+          L.marker([s.lat, s.lon], { icon, interactive: true })
+            .bindTooltip(`<b>${s.n}</b><br>Pendeltåg · Opened ${s.y}`, { direction: 'top', offset: [0, -6] })
+            .addTo(layer);
+        }
+        layer.addTo(mapInfo.map);
+      }
+
+      function enable() {
+        enabled = true;
+        labelEl.textContent = 'Hide Pendeltåg + any-rail catchment';
+        toggleBtn.classList.add('active');
+        window.dispatchEvent(new CustomEvent('pendeltag-toggled', { detail: true }));
+      }
+      function disable() {
+        enabled = false;
+        if (layer) { mapInfo.map.removeLayer(layer); layer = null; }
+        labelEl.textContent = 'Show Pendeltåg + any-rail catchment';
+        toggleBtn.classList.remove('active');
+        window.dispatchEvent(new CustomEvent('pendeltag-toggled', { detail: false }));
+      }
+      toggleBtn.addEventListener('click', () => enabled ? disable() : enable());
+
+      return { update: renderForYear };
     }
 
     // ============================================================

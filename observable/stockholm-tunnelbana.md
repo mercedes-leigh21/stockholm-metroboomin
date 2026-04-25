@@ -19,7 +19,10 @@ const catchment = await FileAttachment("catchment.json").json();
 
 // DeSO polygons (1287 areas, Stockholm county). Used by the arrival-year choropleth.
 const desoGeo  = await FileAttachment("deso_stockholm.json").json();
-const firstServedById = new Map(catchment.deso.map(r => [r.id, r.first_served]));
+const firstServedById = new Map(catchment.deso.map(r => [r.id, r.first_metro ?? r.first_served]));
+
+// Pendeltåg (commuter rail) — 50 stations from Wikidata SPARQL (P16=Q211653)
+const pendeltag = await FileAttachment("pendeltag.json").json();
 ```
 
 ```js
@@ -82,27 +85,32 @@ const countyAt = year => year < COUNTY_FIRST_YEAR ? null : interpAt(countyPop, y
 const stationsAt = year => stations.filter(s => s.year <= year).length;
 const fmt = d3.format(",");
 
-// Pre-compute catchment curve once: year → cumulative pop_2023 in DeSOs served by then
-const catchmentCurve = (() => {
-  const sorted = catchment.deso.filter(r => r.first_served !== null)
-                                .sort((a, b) => a.first_served - b.first_served);
+// Pre-compute two catchment curves: metro-only (first_metro) and any-rail (first_any).
+// The schema also accepts a legacy `first_served` for backwards compatibility.
+function buildCurve(records, field) {
+  const sorted = records.filter(r => (r[field] ?? null) !== null)
+                        .sort((a, b) => a[field] - b[field]);
   const m = new Map();
   let cum = 0, idx = 0;
   for (let y = 1900; y <= 2024; y++) {
-    while (idx < sorted.length && sorted[idx].first_served <= y) { cum += sorted[idx].pop_2023; idx++; }
+    while (idx < sorted.length && sorted[idx][field] <= y) { cum += sorted[idx].pop_2023; idx++; }
     m.set(y, cum);
   }
   return m;
-})();
+}
+const curveMetro = buildCurve(catchment.deso, 'first_metro');
+const curveAny   = buildCurve(catchment.deso, 'first_any');
 const catchmentTotal = catchment._total_pop_2023;
-const catchmentAt = year => catchmentCurve.get(year) ?? 0;
-const catchmentPctAt = year => (catchmentAt(year) / catchmentTotal) * 100;
+// Picks which curve based on the showPendeltag toggle (defined further down)
+const catchmentAt = (year, mode) => (mode === 'any' ? curveAny : curveMetro).get(year) ?? 0;
+const catchmentPctAt = (year, mode) => (catchmentAt(year, mode) / catchmentTotal) * 100;
 ```
 
 ```js
 const year = view(Inputs.range([1900, 2024], { value: 1900, step: 1, label: "Year", width: "100%" }));
-const showRings    = view(Inputs.toggle({ label: "Show 1 km Tunnelbana catchment", value: false }));
+const showRings    = view(Inputs.toggle({ label: "Show 1 km catchment rings", value: false }));
 const showArrival  = view(Inputs.toggle({ label: "Show metro arrival year (per DeSO neighborhood)", value: false }));
+const showPendeltag = view(Inputs.toggle({ label: "Show Pendeltåg + use any-rail catchment", value: false }));
 ```
 
 <div class="grid grid-cols-2" style="gap: 14px;">
@@ -125,9 +133,9 @@ const showArrival  = view(Inputs.toggle({ label: "Show metro arrival year (per D
       </div>
     </div>
     <div class="catchment-card">
-      <div class="label">Within 1 km of a Tunnelbana station</div>
-      <div class="pct">${catchmentPctAt(year).toFixed(1)}<sup>%</sup></div>
-      <div class="sub"><b>${fmt(catchmentAt(year))}</b> of today's <b>${fmt(catchmentTotal)}</b> Stockholmers</div>
+      <div class="label">Within 1 km of ${showPendeltag ? "Tunnelbana or Pendeltåg" : "a Tunnelbana station"}</div>
+      <div class="pct">${catchmentPctAt(year, showPendeltag ? 'any' : 'metro').toFixed(1)}<sup>%</sup></div>
+      <div class="sub"><b>${fmt(catchmentAt(year, showPendeltag ? 'any' : 'metro'))}</b> of today's <b>${fmt(catchmentTotal)}</b> Stockholmers</div>
     </div>
     <div class="card">${popChart}</div>
     <div class="card">${stnChart}</div>
@@ -242,9 +250,43 @@ const tunnelbanaMap = (() => {
       interactive: false
     }).addTo(layer);
   }
+  if (showPendeltag) {
+    for (const s of pendeltag.filter(s => s.year <= year)) {
+      L.circle([s.lat, s.lon], {
+        radius: 1000,
+        color: "rgba(127, 184, 168, 0.4)", weight: 0.5,
+        fillColor: "rgba(127, 184, 168, 1)", fillOpacity: 0.10,
+        interactive: false
+      }).addTo(layer);
+    }
+  }
   layer.addTo(map);
   tunnelbanaMap._rings = layer;
   invalidation.then(() => { if (tunnelbanaMap._rings === layer) { map.removeLayer(layer); tunnelbanaMap._rings = null; } });
+}
+```
+
+```js
+// Reactive: Pendeltåg square markers (year-aware, toggleable)
+{
+  const map = tunnelbanaMap._map;
+  if (!map) return;
+  if (tunnelbanaMap._pdt) { map.removeLayer(tunnelbanaMap._pdt); tunnelbanaMap._pdt = null; }
+  if (!showPendeltag) return;
+  const layer = L.layerGroup();
+  const icon = L.divIcon({
+    className: "",
+    html: '<div style="width:10px;height:10px;background:#7fb8a8;border:1.5px solid #fff;border-radius:2px;box-shadow:0 0 4px rgba(127,184,168,0.45);"></div>',
+    iconSize: [10, 10], iconAnchor: [5, 5]
+  });
+  for (const s of pendeltag.filter(s => s.year <= year)) {
+    L.marker([s.lat, s.lon], { icon })
+      .bindTooltip(`<b>${s.name}</b><br>Pendeltåg · Opened ${s.year}`, { direction: "top", offset: [0, -6] })
+      .addTo(layer);
+  }
+  layer.addTo(map);
+  tunnelbanaMap._pdt = layer;
+  invalidation.then(() => { if (tunnelbanaMap._pdt === layer) { map.removeLayer(layer); tunnelbanaMap._pdt = null; } });
 }
 ```
 
