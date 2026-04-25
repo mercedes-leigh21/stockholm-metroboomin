@@ -1,0 +1,10 @@
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*~
+
+# Local server logs and temp data
+*.log
+/tmp/

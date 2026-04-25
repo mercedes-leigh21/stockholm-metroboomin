@@ -1,0 +1,311 @@
+// Stockholm — A century in motion
+// Tunnelbana growth × city population, 1900 → 2024
+//
+// USAGE — Observable Framework:
+//   Save as src/stockholm-tunnelbana.md (rename .ojs → .md, keep code in ```js fences).
+//   Place stations.json and population.json next to it.
+//
+// USAGE — Observable cloud notebook (observablehq.com):
+//   Each block separated by `//// CELL: name` is one notebook cell. Paste in order.
+//   Upload stations.json and population.json via the file panel.
+
+//// CELL: title
+md`# Stockholm — A century in motion`
+
+//// CELL: subtitle
+md`Tunnelbana growth and city population, 1900 → 2024.
+Data: [Wikidata SPARQL](https://www.wikidata.org/wiki/Q272926) · [SCB API](https://api.scb.se) · Wikipedia`
+
+//// CELL: data — stations
+stations = FileAttachment("stations.json").json()
+
+//// CELL: data — population
+popData = FileAttachment("population.json").json()
+
+//// CELL: convenience aliases
+cityPop = popData.city
+
+//// CELL: county series + first-year sentinel
+countyPop = popData.county
+
+//// CELL: county first year
+COUNTY_FIRST_YEAR = countyPop[0].year
+
+//// CELL: catchment data (per-DeSO 2023 pop + first_served year)
+catchment = FileAttachment("catchment.json").json()
+
+//// CELL: catchment helpers (pre-computed curve)
+catchmentCurve = {
+  const sorted = catchment.deso.filter(r => r.first_served !== null)
+                                .sort((a, b) => a.first_served - b.first_served);
+  const m = new Map();
+  let cum = 0, idx = 0;
+  for (let y = 1900; y <= 2024; y++) {
+    while (idx < sorted.length && sorted[idx].first_served <= y) { cum += sorted[idx].pop_2023; idx++; }
+    m.set(y, cum);
+  }
+  return m;
+}
+
+//// CELL: catchment totals
+catchmentTotal = catchment._total_pop_2023
+
+//// CELL: catchment query helpers
+catchmentAt = year => catchmentCurve.get(year) ?? 0
+
+//// CELL: catchment percent helper
+catchmentPctAt = year => (catchmentAt(year) / catchmentTotal) * 100
+
+//// CELL: leaflet
+L = require("leaflet@1.9.4/dist/leaflet.js")
+
+//// CELL: leaflet CSS + custom theme
+html`<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  .leaflet-tile-pane { filter: brightness(0.32) saturate(0.35) contrast(1.05) hue-rotate(195deg); }
+</style>`
+
+//// CELL: constants
+lineColors = ({
+  "Röda linjen":  "#ff5252",
+  "Blå linjen":   "#4cc9ff",
+  "Gröna linjen": "#6ee06e"
+})
+
+//// CELL: annotations
+annotations = [
+  { y: 1933, label: "Premetro tunnel" },
+  { y: 1950, label: "First Tunnelbana opens" },
+  { y: 1957, label: "T-Centralen unifies the system" },
+  { y: 1960, label: "City pop peaks (808k)" },
+  { y: 1975, label: "Blue line + ABC suburbs" },
+  { y: 1981, label: "City pop bottoms (647k)" },
+  { y: 2017, label: "Citybanan" }
+]
+
+//// CELL: helpers
+fmt = d3.format(",")
+
+//// CELL: helper — interpolate population at any year
+popAt = function(year) {
+  if (year <= cityPop[0].year) return cityPop[0].pop;
+  const last = cityPop[cityPop.length - 1];
+  if (year >= last.year) return last.pop;
+  for (let i = 1; i < cityPop.length; i++) {
+    if (cityPop[i].year >= year) {
+      const a = cityPop[i - 1], b = cityPop[i];
+      const t = (year - a.year) / (b.year - a.year);
+      return Math.round(a.pop + t * (b.pop - a.pop));
+    }
+  }
+}
+
+//// CELL: helper — county pop (null pre-1968)
+countyAt = year => year < COUNTY_FIRST_YEAR ? null : (function(){
+  if (year >= countyPop[countyPop.length - 1].year) return countyPop[countyPop.length - 1].pop;
+  for (let i = 1; i < countyPop.length; i++) {
+    if (countyPop[i].year >= year) {
+      const a = countyPop[i - 1], b = countyPop[i];
+      const t = (year - a.year) / (b.year - a.year);
+      return Math.round(a.pop + t * (b.pop - a.pop));
+    }
+  }
+})()
+
+//// CELL: helper — count stations open at given year
+stationsAt = year => stations.filter(s => s.year <= year).length
+
+//// CELL: year slider (the master input — every chart reacts to this)
+viewof year = Inputs.range([1900, 2024], { value: 1900, step: 1, label: "Year", width: 600 })
+
+//// CELL: choropleth toggle
+viewof showRings = Inputs.toggle({ label: "Show 1 km Tunnelbana catchment", value: false })
+
+//// CELL: stat cards
+html`<div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; max-width:600px;">
+  <div style="background:#141b2e; border:1px solid rgba(255,255,255,0.07); border-radius:10px; padding:12px 14px;">
+    <div style="font-size:9.5px; color:#5b6a85; text-transform:uppercase; letter-spacing:1.2px; font-weight:600;">City</div>
+    <div style="font-size:22px; font-weight:700; margin-top:6px; color:#ffd989; font-variant-numeric:tabular-nums;">${fmt(popAt(year))}</div>
+  </div>
+  <div style="background:#141b2e; border:1px solid rgba(255,255,255,0.07); border-radius:10px; padding:12px 14px;">
+    <div style="font-size:9.5px; color:#5b6a85; text-transform:uppercase; letter-spacing:1.2px; font-weight:600;">County</div>
+    <div style="font-size:22px; font-weight:700; margin-top:6px; color:#c89060; font-variant-numeric:tabular-nums;">${countyAt(year) === null ? "—" : fmt(countyAt(year))}</div>
+  </div>
+  <div style="background:#141b2e; border:1px solid rgba(255,255,255,0.07); border-radius:10px; padding:12px 14px;">
+    <div style="font-size:9.5px; color:#5b6a85; text-transform:uppercase; letter-spacing:1.2px; font-weight:600;">T-bana stations</div>
+    <div style="font-size:22px; font-weight:700; margin-top:6px; color:#5cffe1; font-variant-numeric:tabular-nums;">${stationsAt(year)}</div>
+  </div>
+</div>`
+
+//// CELL: catchment callout
+html`<div style="background:linear-gradient(160deg, rgba(255,217,137,0.10), rgba(255,217,137,0.02));
+                border:1px solid rgba(255,217,137,0.25); border-radius:10px; padding:16px 18px; margin-top:14px; max-width:600px;">
+  <div style="font-size:9.5px; color:#ffd989; font-weight:600; text-transform:uppercase; letter-spacing:1.3px;">Within 1 km of a Tunnelbana station</div>
+  <div style="font-size:52px; font-weight:800; line-height:1; margin:6px 0 4px; color:#ffd989; letter-spacing:-2px; font-variant-numeric:tabular-nums;">
+    ${catchmentPctAt(year).toFixed(1)}<sup style="font-size:22px; font-weight:600; vertical-align:super;">%</sup>
+  </div>
+  <div style="font-size:12px; color:#8a9bb5; line-height:1.4; font-variant-numeric:tabular-nums;">
+    <b style="color:#f0f4fa">${fmt(catchmentAt(year))}</b> of today's <b style="color:#f0f4fa">${fmt(catchmentTotal)}</b> Stockholmers
+  </div>
+</div>`
+
+//// CELL: the map (created once)
+tbMap = {
+  const div = html`<div style="height:520px; background:#050810; border-radius:8px; overflow:hidden; max-width:600px;"></div>`;
+  yield div;  // commit to DOM so Leaflet can size itself
+  const map = L.map(div, { center: [59.33, 18.0], zoom: 11 });
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: "© OSM", maxZoom: 18
+  }).addTo(map);
+  const ghost = L.layerGroup().addTo(map);
+  for (const s of await stations) {
+    L.circleMarker([s.lat, s.lon], {
+      radius: 2.5, color: '#ffffff', opacity: 0.18,
+      fillColor: '#ffffff', fillOpacity: 0.15, weight: 1, interactive: false
+    }).addTo(ghost);
+  }
+  return map;
+}
+
+//// CELL: reactive station layer (rebuilt on year change)
+activeLayer = {
+  const RECENT = 3;
+  const layer = L.layerGroup();
+  for (const s of stations) {
+    if (s.year > year) continue;
+    const isNew = s.year > year - RECENT;
+    const isInterchange = s.lines.length >= 2;
+    const baseColor = lineColors[s.lines[0]] || '#888';
+    L.circleMarker([s.lat, s.lon], {
+      radius: isNew ? 9 : (isInterchange ? 7 : 6),
+      color: isNew ? '#ffffff' : (isInterchange ? '#ffd989' : '#ffffff'),
+      weight: 2,
+      fillColor: isNew ? '#ffe45c' : baseColor,
+      fillOpacity: 1.0
+    }).bindTooltip(
+      `<b>${s.name}</b><br>${s.lines.join(' / ')}<br>Opened ${s.year}`,
+      { direction: 'top', offset: [0, -6] }
+    ).addTo(layer);
+  }
+  return layer;
+}
+
+//// CELL: side-effect — attach activeLayer; clean up on re-eval
+{
+  activeLayer.addTo(tbMap);
+  invalidation.then(() => tbMap.removeLayer(activeLayer));
+}
+
+//// CELL: side-effect — 1 km catchment rings (year-reactive, toggleable)
+{
+  if (!showRings) return;
+  const layer = L.layerGroup();
+  for (const s of stations.filter(s => s.year <= year)) {
+    L.circle([s.lat, s.lon], {
+      radius: 1000,
+      color: "rgba(255, 217, 137, 0.4)", weight: 0.5,
+      fillColor: "rgba(255, 217, 137, 1)", fillOpacity: 0.10,
+      interactive: false
+    }).addTo(layer);
+  }
+  layer.addTo(tbMap);
+  invalidation.then(() => tbMap.removeLayer(layer));
+}
+
+//// CELL: suburbs stack series
+countyStack = countyPop.map(d => ({ year: d.year, y1: popAt(d.year), y2: d.pop }))
+
+//// CELL: population chart (city + suburbs stacked, reactive on year)
+Plot.plot({
+  height: 200, width: 600,
+  marginLeft: 50, marginTop: 18, marginBottom: 28,
+  style: { background: "transparent", color: "#8a9bb5", fontSize: 10 },
+  x: { domain: [1900, 2024], label: null, tickFormat: "d", tickSize: 4 },
+  y: {
+    label: "Greater Stockholm population",
+    tickFormat: d => d/1000 + "k",
+    grid: true, nice: true
+  },
+  marks: [
+    Plot.ruleX(annotations.map(a => a.y), { stroke: "#5b6a85", strokeOpacity: 0.3, strokeDasharray: "2,3" }),
+
+    // City layer (bottom)
+    Plot.areaY(cityPop.filter(d => d.year >= year),
+      { x: "year", y: "pop", curve: "monotone-x", fill: "#ffd989", fillOpacity: 0.08 }),
+    Plot.lineY(cityPop.filter(d => d.year >= year),
+      { x: "year", y: "pop", curve: "monotone-x", stroke: "#ffd989", strokeOpacity: 0.3, strokeWidth: 1.5 }),
+    Plot.areaY(cityPop.filter(d => d.year <= year).concat([{ year, pop: popAt(year) }]),
+      { x: "year", y: "pop", curve: "monotone-x", fill: "#ffd989", fillOpacity: 0.35 }),
+    Plot.lineY(cityPop.filter(d => d.year <= year).concat([{ year, pop: popAt(year) }]),
+      { x: "year", y: "pop", curve: "monotone-x", stroke: "#ffd989", strokeWidth: 2 }),
+
+    // Suburbs layer (county minus city), stacked above city
+    Plot.area(countyStack.filter(d => d.year >= year),
+      { x: "year", y1: "y1", y2: "y2", curve: "monotone-x", fill: "#c89060", fillOpacity: 0.08 }),
+    Plot.line(countyStack.filter(d => d.year >= year),
+      { x: "year", y: "y2", curve: "monotone-x", stroke: "#c89060", strokeOpacity: 0.3, strokeWidth: 1.5 }),
+    Plot.area(countyStack.filter(d => d.year <= year).concat(year >= COUNTY_FIRST_YEAR ? [{ year, y1: popAt(year), y2: countyAt(year) }] : []),
+      { x: "year", y1: "y1", y2: "y2", curve: "monotone-x", fill: "#c89060", fillOpacity: 0.35 }),
+    Plot.line(countyStack.filter(d => d.year <= year).concat(year >= COUNTY_FIRST_YEAR ? [{ year, y1: popAt(year), y2: countyAt(year) }] : []),
+      { x: "year", y: "y2", curve: "monotone-x", stroke: "#c89060", strokeWidth: 2 }),
+
+    // Playhead
+    Plot.ruleX([year], { stroke: "white", strokeOpacity: 0.5, strokeDasharray: "4,4" }),
+    Plot.dot([{ x: year, y: countyAt(year) ?? popAt(year) }],
+      { x: "x", y: "y", fill: "#ffe45c", stroke: "white", strokeWidth: 1.5, r: 4 })
+  ]
+}),
+
+    // Future portion (faded)
+    Plot.areaY(cityPop.filter(d => d.year >= year),
+      { x: "year", y: "pop", curve: "monotone-x", fill: "#ffd989", fillOpacity: 0.08 }),
+    Plot.lineY(cityPop.filter(d => d.year >= year),
+      { x: "year", y: "pop", curve: "monotone-x", stroke: "#ffd989", strokeOpacity: 0.3, strokeWidth: 1.5 }),
+
+    // Past portion (saturated)
+    Plot.areaY(cityPop.filter(d => d.year <= year).concat([{ year, pop: popAt(year) }]),
+      { x: "year", y: "pop", curve: "monotone-x", fill: "#ffd989", fillOpacity: 0.35 }),
+    Plot.lineY(cityPop.filter(d => d.year <= year).concat([{ year, pop: popAt(year) }]),
+      { x: "year", y: "pop", curve: "monotone-x", stroke: "#ffd989", strokeWidth: 2 }),
+
+    // Playhead
+    Plot.ruleX([year], { stroke: "white", strokeOpacity: 0.5, strokeDasharray: "4,4" }),
+    Plot.dot([{ x: year, y: popAt(year) }],
+      { x: "x", y: "y", fill: "#ffe45c", stroke: "white", strokeWidth: 1.5, r: 4 })
+  ]
+})
+
+//// CELL: stations time series (precomputed once — doesn't depend on year)
+stnSeries = d3.range(1900, 2025).map(y => ({ year: y, n: stationsAt(y) }))
+
+//// CELL: stations chart (reactive on year)
+Plot.plot({
+  height: 200, width: 600,
+  marginLeft: 50, marginTop: 18, marginBottom: 28,
+  style: { background: "transparent", color: "#8a9bb5", fontSize: 10 },
+  x: { domain: [1900, 2024], label: null, tickFormat: "d", tickSize: 4 },
+  y: { label: "Cumulative Tunnelbana stations", grid: true, nice: true },
+  marks: [
+    Plot.ruleX(annotations.map(a => a.y), { stroke: "#5b6a85", strokeOpacity: 0.3, strokeDasharray: "2,3" }),
+
+    Plot.areaY(stnSeries.filter(d => d.year >= year),
+      { x: "year", y: "n", curve: "step-after", fill: "#5cffe1", fillOpacity: 0.08 }),
+    Plot.lineY(stnSeries.filter(d => d.year >= year),
+      { x: "year", y: "n", curve: "step-after", stroke: "#5cffe1", strokeOpacity: 0.3, strokeWidth: 1.5 }),
+
+    Plot.areaY(stnSeries.filter(d => d.year <= year),
+      { x: "year", y: "n", curve: "step-after", fill: "#5cffe1", fillOpacity: 0.35 }),
+    Plot.lineY(stnSeries.filter(d => d.year <= year),
+      { x: "year", y: "n", curve: "step-after", stroke: "#5cffe1", strokeWidth: 2 }),
+
+    Plot.ruleX([year], { stroke: "white", strokeOpacity: 0.5, strokeDasharray: "4,4" }),
+    Plot.dot([{ x: year, y: stationsAt(year) }],
+      { x: "x", y: "y", fill: "#ffe45c", stroke: "white", strokeWidth: 1.5, r: 4 })
+  ]
+})
+
+//// CELL: footer
+md`---
+The Tunnelbana opened in 1950 right as Stockholm city hit its all-time peak (808k in 1960). Over the next 20 years the city **shrank** as the metro enabled the ABC-städer suburbs (Vällingby, Farsta, Skärholmen). The city core only recovered after 2000.
+
+*Sources: [Wikidata SPARQL](https://www.wikidata.org/wiki/Q272926) for stations · [SCB API](https://api.scb.se) for population 1968–2024 · Wikipedia for population 1900–1960.*`

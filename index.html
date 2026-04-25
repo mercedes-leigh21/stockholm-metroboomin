@@ -1,0 +1,1205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stockholm — Tunnelbana growth × city population</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:        #0a0e1a;
+      --surface:   #141b2e;
+      --surface-2: #1a2138;
+      --border:    rgba(255, 255, 255, 0.07);
+      --text:      #f0f4fa;
+      --text-muted:#8a9bb5;
+      --text-dim:  #5b6a85;
+      --accent:    #5cffe1;
+      --pop:       #ffd989;
+      --pop-2:     #c89060;
+      --flash:     #ffe45c;
+      --line-r:    #ff5252;
+      --line-b:    #4cc9ff;
+      --line-g:    #6ee06e;
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0; height: 100%; overflow: hidden;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg); color: var(--text);
+      font-feature-settings: "ss01", "cv11";
+    }
+
+    /* ---------- Layout ---------- */
+    #app {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      grid-template-columns: 1fr;
+      height: 100vh;
+    }
+    #header {
+      padding: 16px 28px 12px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: baseline; gap: 24px;
+      background: linear-gradient(180deg, rgba(20,27,46,0.6), rgba(10,14,26,0));
+    }
+    #header h1 {
+      font-family: 'Playfair Display', serif;
+      font-size: 22px; font-weight: 700; margin: 0;
+      letter-spacing: -0.5px;
+    }
+    #header .subtitle {
+      font-size: 12px; color: var(--text-muted);
+      letter-spacing: 0.3px;
+    }
+    #header .byline {
+      margin-left: auto; font-size: 10px; color: var(--text-dim);
+      letter-spacing: 1px; text-transform: uppercase;
+    }
+
+    #main {
+      display: grid;
+      grid-template-columns: 1fr 460px;
+      min-height: 0;
+    }
+    @media (max-width: 1100px) {
+      #main { grid-template-columns: 1fr 380px; }
+    }
+
+    #map-wrap { position: relative; min-height: 0; }
+    #map { position: absolute; inset: 0; background: #050810; }
+    .leaflet-tile-pane { filter: brightness(0.32) saturate(0.35) contrast(1.05) hue-rotate(195deg); }
+    .leaflet-control-attribution {
+      background: rgba(10,14,26,0.7) !important; color: var(--text-dim) !important;
+      font-size: 10px !important;
+    }
+    .leaflet-control-attribution a { color: var(--text-muted) !important; }
+
+    /* Map overlay: small "stations open" pill in top-left (year now lives in right panel) */
+    #map-overlay {
+      position: absolute; top: 18px; left: 60px; z-index: 1000;
+      pointer-events: none;
+      background: rgba(20,27,46,0.85);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 14px;
+      font-size: 12px; color: var(--text-muted);
+      letter-spacing: 0.5px;
+      backdrop-filter: blur(8px);
+    }
+    #map-overlay b { color: var(--accent); font-weight: 700; font-variant-numeric: tabular-nums; font-size: 16px; }
+
+    #legend {
+      position: absolute; bottom: 18px; left: 18px; z-index: 1000;
+      background: rgba(20,27,46,0.85);
+      border: 1px solid var(--border); border-radius: 8px;
+      padding: 10px 14px; font-size: 11px;
+      backdrop-filter: blur(8px);
+      display: flex; gap: 16px; align-items: center;
+    }
+    .legend-item { display: flex; align-items: center; gap: 6px; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid #fff; }
+    .dot.green { background: var(--line-g); }
+    .dot.red { background: var(--line-r); }
+    .dot.blue { background: var(--line-b); }
+    .dot.flash { background: var(--flash); border-color: #fff; box-shadow: 0 0 6px var(--flash); }
+
+    /* Map control stack (bottom-right) — multiple toggle buttons */
+    #map-controls {
+      position: absolute; bottom: 18px; right: 18px; z-index: 1000;
+      display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
+      pointer-events: none;
+    }
+    .map-toggle {
+      pointer-events: auto;
+      background: rgba(20,27,46,0.85);
+      border: 1px solid var(--border); border-radius: 8px;
+      padding: 8px 14px; color: var(--text);
+      cursor: pointer; font-size: 12px; font-family: inherit; font-weight: 500;
+      backdrop-filter: blur(8px);
+      display: flex; align-items: center; gap: 8px;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .map-toggle:hover { background: rgba(20,27,46,0.95); }
+    .map-toggle .ring-icon {
+      width: 14px; height: 14px; border-radius: 50%;
+      border: 1.5px solid currentColor; opacity: 0.7;
+    }
+    .map-toggle .swatch-strip {
+      display: inline-flex; gap: 1px;
+    }
+    .map-toggle .swatch-strip span {
+      width: 6px; height: 12px; border-radius: 1px;
+    }
+
+    #catchment-toggle.active { background: rgba(255,217,137,0.18); border-color: rgba(255,217,137,0.5); color: var(--pop); }
+    #arrival-toggle.active { background: rgba(92,255,225,0.15); border-color: rgba(92,255,225,0.45); color: var(--accent); }
+
+    #arrival-legend {
+      pointer-events: auto;
+      background: rgba(20,27,46,0.85);
+      border: 1px solid rgba(92,255,225,0.25); border-radius: 8px;
+      padding: 9px 12px; font-size: 10px; color: var(--text-muted);
+      backdrop-filter: blur(8px); display: none;
+      letter-spacing: 0.5px;
+    }
+    #arrival-legend.visible { display: block; }
+    #arrival-legend .ramp-label { font-weight: 600; color: var(--text); margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1.1px; font-size: 9.5px; }
+    #arrival-legend .ramp-bar { height: 8px; width: 220px; border-radius: 2px;
+      background: linear-gradient(to right, #0d2935, #5cffe1);
+      border: 1px solid rgba(92,255,225,0.2); }
+    #arrival-legend .ramp-ticks { display: flex; justify-content: space-between; margin-top: 3px; font-variant-numeric: tabular-nums; }
+    #arrival-legend .ramp-note { margin-top: 5px; color: var(--text-dim); font-size: 9.5px; }
+
+    /* Catchment callout in right panel */
+    .catchment-card {
+      background: linear-gradient(160deg, rgba(255,217,137,0.10), rgba(255,217,137,0.02));
+      border: 1px solid rgba(255,217,137,0.25);
+      border-radius: 10px;
+      padding: 16px 18px;
+      position: relative; overflow: hidden;
+    }
+    .catchment-card .label {
+      font-size: 9.5px; color: var(--pop); font-weight: 600;
+      text-transform: uppercase; letter-spacing: 1.3px;
+    }
+    .catchment-card .pct {
+      font-size: 52px; font-weight: 800; line-height: 1; margin: 6px 0 4px;
+      color: var(--pop); letter-spacing: -2px; font-variant-numeric: tabular-nums;
+    }
+    .catchment-card .pct sup { font-size: 22px; font-weight: 600; vertical-align: super; }
+    .catchment-card .sub {
+      font-size: 12px; color: var(--text-muted); line-height: 1.4;
+      font-variant-numeric: tabular-nums;
+    }
+    .catchment-card .sub b { color: var(--text); font-weight: 600; }
+    .catchment-card svg.spark {
+      display: block; width: 100%; height: 36px; margin-top: 10px;
+    }
+
+    /* ---------- Right panel ---------- */
+    #panel {
+      border-left: 1px solid var(--border);
+      background: var(--bg);
+      padding: 22px 24px 16px;
+      overflow-y: auto;
+      display: flex; flex-direction: column; gap: 16px;
+    }
+    /* Big year inside the right panel (replaces the old map overlay year) */
+    #panel-year {
+      font-size: 88px; font-weight: 800; line-height: 0.9;
+      letter-spacing: -3px; font-variant-numeric: tabular-nums;
+      color: var(--text);
+      margin: 0 0 -2px;
+    }
+    #panel-year-sub {
+      font-size: 11px; color: var(--text-muted);
+      letter-spacing: 1.5px; text-transform: uppercase; font-weight: 600;
+    }
+    .stat-row {
+      display: grid; grid-template-columns: 1fr 1fr 1fr;
+      gap: 12px;
+    }
+    .stat-row .stat .value { font-size: 22px; }
+    .stat {
+      padding: 14px 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+    }
+    .stat .label {
+      font-size: 9.5px; color: var(--text-dim); font-weight: 600;
+      text-transform: uppercase; letter-spacing: 1.2px;
+    }
+    .stat .value {
+      font-size: 26px; font-weight: 700; margin-top: 6px;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.5px;
+    }
+    .stat .delta {
+      font-size: 11px; color: var(--text-muted); margin-top: 4px;
+      font-variant-numeric: tabular-nums;
+    }
+    .stat .delta.up { color: #6ee06e; }
+    .stat .delta.down { color: #ff8b9e; }
+    .stat.pop .value { color: var(--pop); }
+    .stat.county .value { color: var(--pop-2); }
+    .stat.stations .value { color: var(--accent); }
+
+    .chart-block {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 16px 8px;
+      display: flex; flex-direction: column;
+      flex: 1 1 0; /* both charts grow to fill remaining vertical space */
+      min-height: 200px;
+    }
+    .chart-block h4 {
+      margin: 0 0 6px; font-size: 10px; color: var(--text-dim);
+      text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600;
+    }
+    .chart-block .chart-current {
+      font-size: 11px; color: var(--text-muted); margin: -4px 0 4px;
+      font-variant-numeric: tabular-nums;
+    }
+    .chart-block .chart-current b { color: var(--text); font-weight: 600; }
+    .chart-block svg { display: block; width: 100%; flex: 1 1 0; min-height: 140px; }
+
+    /* D3 chart styles */
+    .chart-block .axis text { fill: var(--text-dim); font-size: 9px; font-family: inherit; }
+    .chart-block .axis line, .chart-block .axis path { stroke: var(--border); stroke-width: 1; shape-rendering: crispEdges; }
+    .chart-block .grid line { stroke: var(--border); stroke-dasharray: 2,2; }
+    .chart-block .area-future { fill-opacity: 0.08; }
+    .chart-block .area-past { fill-opacity: 0.35; }
+    .chart-block .line-future { fill: none; stroke-opacity: 0.25; stroke-width: 1.5; }
+    .chart-block .line-past { fill: none; stroke-width: 2; }
+    .chart-block .playhead { stroke: var(--text); stroke-width: 1; opacity: 0.4; stroke-dasharray: 3,3; }
+    .chart-block .playhead-dot { fill: var(--flash); stroke: #fff; stroke-width: 1.5; }
+    .chart-block .annotation { fill: var(--text-muted); font-size: 9px; font-family: inherit; }
+    .chart-block .annotation-tick { stroke: var(--text-dim); stroke-width: 1; opacity: 0.3; }
+
+    .footer-note {
+      font-size: 10px; color: var(--text-dim);
+      margin-top: auto; padding-top: 8px; border-top: 1px solid var(--border);
+      line-height: 1.5;
+    }
+    .footer-note a { color: var(--text-muted); text-decoration: none; border-bottom: 1px dotted var(--text-dim); }
+
+    /* ---------- Slider strip ---------- */
+    #slider-strip {
+      padding: 14px 28px;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      display: grid; grid-template-columns: auto 1fr; align-items: center;
+      column-gap: 20px; row-gap: 4px;
+    }
+    #play-btn {
+      grid-row: 1 / 3; width: 42px; height: 42px; border-radius: 50%; border: none;
+      background: var(--accent); color: var(--bg); font-size: 16px; font-weight: 800;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      transition: transform 0.12s, background 0.12s;
+    }
+    #play-btn:hover { transform: scale(1.06); }
+    #play-btn.playing { background: #ff6b8a; color: #fff; }
+
+    #year-slider {
+      grid-row: 1; grid-column: 2; width: 100%;
+      -webkit-appearance: none; appearance: none;
+      height: 6px; background: var(--surface-2); border-radius: 3px; outline: none;
+    }
+    #year-slider::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 20px; height: 20px; border-radius: 50%;
+      background: var(--accent); cursor: pointer; border: 2px solid var(--bg);
+      box-shadow: 0 0 8px rgba(92,255,225,0.5);
+    }
+    #year-slider::-moz-range-thumb {
+      width: 20px; height: 20px; border-radius: 50%;
+      background: var(--accent); cursor: pointer; border: 2px solid var(--bg);
+    }
+    #year-marks {
+      grid-row: 2; grid-column: 2;
+      display: flex; justify-content: space-between;
+      font-size: 10px; color: var(--text-dim); font-variant-numeric: tabular-nums;
+    }
+
+    #boot-error {
+      position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      z-index: 9999; background: #ff6b8a; color: #0a0e1a;
+      padding: 24px 32px; border-radius: 8px; max-width: 600px;
+      font-size: 14px; line-height: 1.5; display: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <header id="header">
+      <div>
+        <h1>Stockholm — A century in motion</h1>
+        <div class="subtitle">Tunnelbana growth and city population, 1900 → 2024</div>
+      </div>
+      <div class="byline">Data · Wikidata SPARQL · SCB API · Wikipedia</div>
+    </header>
+
+    <div id="main">
+      <div id="map-wrap">
+        <div id="map"></div>
+        <div id="map-overlay">
+          <b id="stations-count">0</b> Tunnelbana stations open
+        </div>
+        <div id="legend">
+          <div class="legend-item"><span class="dot green"></span>Gröna</div>
+          <div class="legend-item"><span class="dot red"></span>Röda</div>
+          <div class="legend-item"><span class="dot blue"></span>Blå</div>
+          <div class="legend-item"><span class="dot flash"></span>Just opened</div>
+        </div>
+
+        <div id="map-controls">
+          <button id="arrival-toggle" class="map-toggle" type="button">
+            <span class="swatch-strip">
+              <span style="background: #0d2935"></span>
+              <span style="background: #2a5d6e"></span>
+              <span style="background: #4ec0d3"></span>
+              <span style="background: #5cffe1"></span>
+            </span>
+            <span id="arrival-toggle-label">Show metro arrival year</span>
+          </button>
+          <button id="catchment-toggle" class="map-toggle" type="button">
+            <span class="ring-icon"></span>
+            <span id="catchment-toggle-label">Show 1 km catchment</span>
+          </button>
+          <div id="arrival-legend">
+            <div class="ramp-label">Year metro reached this DeSO</div>
+            <div class="ramp-bar"></div>
+            <div class="ramp-ticks"><span>1933</span><span>1957</span><span>1975</span><span>1994</span></div>
+            <div class="ramp-note">Faded grey = never within 1 km of a station</div>
+          </div>
+        </div>
+      </div>
+
+      <aside id="panel">
+        <div>
+          <div id="panel-year">1900</div>
+          <div id="panel-year-sub">Year</div>
+        </div>
+        <div class="stat-row">
+          <div class="stat pop">
+            <div class="label">City</div>
+            <div class="value" id="pop-value">—</div>
+            <div class="delta" id="pop-delta">&nbsp;</div>
+          </div>
+          <div class="stat county">
+            <div class="label">County</div>
+            <div class="value" id="county-value">—</div>
+            <div class="delta" id="county-delta">&nbsp;</div>
+          </div>
+          <div class="stat stations">
+            <div class="label">T-bana stations</div>
+            <div class="value" id="stn-value">0</div>
+            <div class="delta" id="stn-delta">&nbsp;</div>
+          </div>
+        </div>
+
+        <div class="catchment-card" id="catchment-card">
+          <div class="label">Within 1 km of a Tunnelbana station</div>
+          <div class="pct"><span id="catchment-pct">0</span><sup>%</sup></div>
+          <div class="sub"><b id="catchment-people">0</b> of today's <b id="catchment-total">2,454,821</b> Stockholmers</div>
+          <svg class="spark" id="catchment-spark"></svg>
+        </div>
+
+        <div class="chart-block" id="pop-chart-wrap">
+          <h4>Greater Stockholm population <span style="color:var(--pop)">— city</span> <span style="color:var(--pop-2)">+ county (suburbs)</span></h4>
+          <div class="chart-current" id="pop-current">&nbsp;</div>
+          <svg id="pop-chart"></svg>
+        </div>
+
+        <div class="chart-block" id="stn-chart-wrap">
+          <h4>Cumulative Tunnelbana stations</h4>
+          <div class="chart-current" id="stn-current">&nbsp;</div>
+          <svg id="stn-chart"></svg>
+        </div>
+
+        <div class="footer-note">
+          The Tunnelbana opened in 1950 right as Stockholm city hit its all-time peak (808 k in 1960). Over the next 20 years the city <em>shrank</em> as the metro enabled the ABC-städer suburbs (Vällingby, Farsta, Skärholmen). The city core only recovered after 2000.<br><br>
+          Sources: <a href="https://www.wikidata.org/wiki/Q272926">Wikidata SPARQL</a> for stations · <a href="https://api.scb.se">SCB API</a> for population 1968–2024 · Wikipedia for population 1900–1960.
+        </div>
+      </aside>
+    </div>
+
+    <div id="slider-strip">
+      <button id="play-btn" aria-label="Play">▶</button>
+      <input type="range" id="year-slider" min="1900" max="2024" value="1900" step="1">
+      <div id="year-marks">
+        <span>1900</span><span>1920</span><span>1940</span><span>1950</span><span>1960</span><span>1980</span><span>2000</span><span>2024</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="boot-error"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin
+          onerror="document.getElementById('boot-error').style.display='block';document.getElementById('boot-error').innerHTML='Failed to load Leaflet from CDN.';"></script>
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"
+          onerror="document.getElementById('boot-error').style.display='block';document.getElementById('boot-error').innerHTML='Failed to load D3 from CDN.';"></script>
+
+  <script>
+    // ============================================================
+    // DATA — all inlined so the page works under Flatpak portal sandbox.
+    // ============================================================
+
+    // Stockholm Metro stations: 100 from Wikidata SPARQL (P16=Q272926).
+    const STATIONS = [{n:"Medborgarplatsens",y:1933,lat:59.31520,lon:18.07280,l:["Gröna linjen"]},
+      {n:"Skanstulls",y:1933,lat:59.30778,lon:18.07583,l:["Gröna linjen"]},
+      {n:"Slussens",y:1933,lat:59.31944,lon:18.07222,l:["Gröna linjen","Röda linjen"]},
+      {n:"Blåsuts",y:1950,lat:59.29000,lon:18.09083,l:["Gröna linjen"]},
+      {n:"Gubbängens",y:1950,lat:59.26278,lon:18.08194,l:["Gröna linjen"]},
+      {n:"Gullmarsplans",y:1950,lat:59.29833,lon:18.08083,l:["Gröna linjen"]},
+      {n:"Hökarängens",y:1950,lat:59.25778,lon:18.08250,l:["Gröna linjen"]},
+      {n:"Sandsborgs",y:1950,lat:59.28500,lon:18.09222,l:["Gröna linjen"]},
+      {n:"Skogskyrkogårdens",y:1950,lat:59.27806,lon:18.09528,l:["Gröna linjen"]},
+      {n:"Skärmarbrink",y:1950,lat:59.29564,lon:18.08981,l:["Gröna linjen"]},
+      {n:"Tallkrogens",y:1950,lat:59.27167,lon:18.08639,l:["Gröna linjen"]},
+      {n:"Enskede gårds",y:1951,lat:59.28889,lon:18.07056,l:["Gröna linjen"]},
+      {n:"Globens",y:1951,lat:59.29417,lon:18.07722,l:["Gröna linjen"]},
+      {n:"Sockenplans",y:1951,lat:59.28278,lon:18.07028,l:["Gröna linjen"]},
+      {n:"Stureby",y:1951,lat:59.27472,lon:18.05694,l:["Gröna linjen"]},
+      {n:"Svedmyra",y:1951,lat:59.27750,lon:18.06708,l:["Gröna linjen"]},
+      {n:"Abrahamsbergs",y:1952,lat:59.33640,lon:17.95420,l:["Gröna linjen"]},
+      {n:"Alviks",y:1952,lat:59.33343,lon:17.98205,l:["Gröna linjen"]},
+      {n:"Blackebergs",y:1952,lat:59.34833,lon:17.88250,l:["Gröna linjen"]},
+      {n:"Brommaplans",y:1952,lat:59.33833,lon:17.93944,l:["Gröna linjen"]},
+      {n:"Fridhemsplans",y:1952,lat:59.33372,lon:18.02905,l:["Blå linjen","Gröna linjen"]},
+      {n:"Hötorgets",y:1952,lat:59.33550,lon:18.06360,l:["Gröna linjen"]},
+      {n:"Islandstorgets",y:1952,lat:59.34611,lon:17.89292,l:["Gröna linjen"]},
+      {n:"Kristinebergs",y:1952,lat:59.33250,lon:18.00417,l:["Gröna linjen"]},
+      {n:"Odenplans",y:1952,lat:59.34278,lon:18.04889,l:["Gröna linjen"]},
+      {n:"Råcksta",y:1952,lat:59.35472,lon:17.88186,l:["Gröna linjen"]},
+      {n:"Rådmansgatans",y:1952,lat:59.34028,lon:18.05861,l:["Gröna linjen"]},
+      {n:"Sankt Eriksplans",y:1952,lat:59.34054,lon:18.03722,l:["Gröna linjen"]},
+      {n:"Stora mossens",y:1952,lat:59.33472,lon:17.96500,l:["Gröna linjen"]},
+      {n:"Thorildsplans",y:1952,lat:59.33139,lon:18.01472,l:["Gröna linjen"]},
+      {n:"Ängbyplans",y:1952,lat:59.34189,lon:17.90739,l:["Gröna linjen"]},
+      {n:"Åkeshovs",y:1952,lat:59.34194,lon:17.92389,l:["Gröna linjen"]},
+      {n:"Bandhagens",y:1954,lat:59.27056,lon:18.04944,l:["Gröna linjen"]},
+      {n:"Högdalens",y:1954,lat:59.26389,lon:18.04306,l:["Gröna linjen"]},
+      {n:"Vällingby",y:1954,lat:59.36389,lon:17.87056,l:["Gröna linjen"]},
+      {n:"Johannelunds",y:1956,lat:59.36778,lon:17.85778,l:["Gröna linjen"]},
+      {n:"Gamla stans",y:1957,lat:59.32332,lon:18.06698,l:["Gröna linjen","Röda linjen"]},
+      {n:"T-Centralen",y:1957,lat:59.33167,lon:18.06083,l:["Blå linjen","Gröna linjen","Röda linjen"]},
+      {n:"Bagarmossens",y:1958,lat:59.27611,lon:18.13139,l:["Gröna linjen"]},
+      {n:"Björkhagens",y:1958,lat:59.29056,lon:18.11556,l:["Gröna linjen"]},
+      {n:"Farsta",y:1958,lat:59.24333,lon:18.09389,l:["Gröna linjen"]},
+      {n:"Hammarbyhöjdens",y:1958,lat:59.29478,lon:18.10333,l:["Gröna linjen"]},
+      {n:"Hässelby gårds",y:1958,lat:59.36694,lon:17.84444,l:["Gröna linjen"]},
+      {n:"Hässelby strands",y:1958,lat:59.36139,lon:17.83250,l:["Gröna linjen"]},
+      {n:"Kärrtorps",y:1958,lat:59.28444,lon:18.11417,l:["Gröna linjen"]},
+      {n:"Rågsveds",y:1959,lat:59.25667,lon:18.02833,l:["Gröna linjen"]},
+      {n:"Hagsätra",y:1960,lat:59.26222,lon:18.01222,l:["Gröna linjen"]},
+      {n:"Aspuddens",y:1964,lat:59.30556,lon:18.00083,l:["Röda linjen"]},
+      {n:"Fruängens",y:1964,lat:59.28583,lon:17.96500,l:["Röda linjen"]},
+      {n:"Hornstulls",y:1964,lat:59.31639,lon:18.03667,l:["Röda linjen"]},
+      {n:"Hägerstensåsens",y:1964,lat:59.29500,lon:17.97792,l:["Röda linjen"]},
+      {n:"Liljeholmens",y:1964,lat:59.31028,lon:18.02250,l:["Röda linjen"]},
+      {n:"Mariatorgets",y:1964,lat:59.31667,lon:18.06306,l:["Röda linjen"]},
+      {n:"Midsommarkransens",y:1964,lat:59.30170,lon:18.01110,l:["Röda linjen"]},
+      {n:"Telefonplans",y:1964,lat:59.29806,lon:17.99694,l:["Röda linjen"]},
+      {n:"Västertorps",y:1964,lat:59.29111,lon:17.96667,l:["Röda linjen"]},
+      {n:"Zinkensdamms",y:1964,lat:59.31778,lon:18.05000,l:["Röda linjen"]},
+      {n:"Örnsbergs",y:1964,lat:59.30550,lon:17.98903,l:["Röda linjen"]},
+      {n:"Axelsbergs",y:1965,lat:59.30433,lon:17.97472,l:["Röda linjen"]},
+      {n:"Bredängs",y:1965,lat:59.29500,lon:17.93389,l:["Röda linjen"]},
+      {n:"Mälarhöjdens",y:1965,lat:59.30083,lon:17.95722,l:["Röda linjen"]},
+      {n:"Sätra",y:1965,lat:59.28577,lon:17.92167,l:["Röda linjen"]},
+      {n:"Östermalmstorgs",y:1965,lat:59.33500,lon:18.07403,l:["Röda linjen"]},
+      {n:"Gärdets",y:1967,lat:59.34583,lon:18.09889,l:["Röda linjen"]},
+      {n:"Karlaplans",y:1967,lat:59.33861,lon:18.09056,l:["Röda linjen"]},
+      {n:"Ropstens",y:1967,lat:59.35722,lon:18.10167,l:["Röda linjen"]},
+      {n:"Skärholmens",y:1967,lat:59.27714,lon:17.90694,l:["Röda linjen"]},
+      {n:"Vårbergs",y:1967,lat:59.27583,lon:17.89083,l:["Röda linjen"]},
+      {n:"Farsta strands",y:1971,lat:59.23505,lon:18.10207,l:["Gröna linjen"]},
+      {n:"Fittja",y:1972,lat:59.24750,lon:17.86083,l:["Röda linjen"]},
+      {n:"Masmo",y:1972,lat:59.24972,lon:17.88028,l:["Röda linjen"]},
+      {n:"Vårby gårds",y:1972,lat:59.26472,lon:17.88389,l:["Röda linjen"]},
+      {n:"Stadions",y:1973,lat:59.34306,lon:18.08111,l:["Röda linjen"]},
+      {n:"Tekniska högskolans",y:1973,lat:59.34583,lon:18.07139,l:["Röda linjen"]},
+      {n:"Alby",y:1975,lat:59.23903,lon:17.84486,l:["Röda linjen"]},
+      {n:"Hallonbergens",y:1975,lat:59.37528,lon:17.96917,l:["Blå linjen"]},
+      {n:"Hallunda",y:1975,lat:59.24333,lon:17.82528,l:["Röda linjen"]},
+      {n:"Hjulsta",y:1975,lat:59.39611,lon:17.88778,l:["Blå linjen"]},
+      {n:"Norsborgs",y:1975,lat:59.24389,lon:17.81306,l:["Röda linjen"]},
+      {n:"Näckrosens",y:1975,lat:59.36667,lon:17.98319,l:["Blå linjen"]},
+      {n:"Rinkeby",y:1975,lat:59.38806,lon:17.92861,l:["Blå linjen"]},
+      {n:"Rådhusets",y:1975,lat:59.33015,lon:18.04424,l:["Blå linjen"]},
+      {n:"Solna centrums",y:1975,lat:59.35909,lon:17.99863,l:["Blå linjen"]},
+      {n:"Stadshagens",y:1975,lat:59.33722,lon:18.01778,l:["Blå linjen"]},
+      {n:"Tensta",y:1975,lat:59.39389,lon:17.90194,l:["Blå linjen"]},
+      {n:"Universitetets",y:1975,lat:59.36569,lon:18.05472,l:["Röda linjen"]},
+      {n:"Västra skogens",y:1975,lat:59.34750,lon:18.00389,l:["Blå linjen"]},
+      {n:"Akalla",y:1977,lat:59.41480,lon:17.91280,l:["Blå linjen"]},
+      {n:"Husby",y:1977,lat:59.40818,lon:17.92866,l:["Blå linjen"]},
+      {n:"Kista",y:1977,lat:59.40278,lon:17.94194,l:["Blå linjen"]},
+      {n:"Kungsträdgårdens",y:1977,lat:59.33083,lon:18.07099,l:["Blå linjen"]},
+      {n:"Bergshamra",y:1978,lat:59.38150,lon:18.03653,l:["Röda linjen"]},
+      {n:"Danderyds sjukhus",y:1978,lat:59.39167,lon:18.04139,l:["Röda linjen"]},
+      {n:"Mörby centrum",y:1978,lat:59.39861,lon:18.03611,l:["Röda linjen"]},
+      {n:"Duvbo",y:1985,lat:59.36778,lon:17.96444,l:["Blå linjen"]},
+      {n:"Huvudsta",y:1985,lat:59.34944,lon:17.98556,l:["Blå linjen"]},
+      {n:"Rissne",y:1985,lat:59.37583,lon:17.93972,l:["Blå linjen"]},
+      {n:"Solna strands",y:1985,lat:59.35417,lon:17.97389,l:["Blå linjen"]},
+      {n:"Sundbybergs centrums",y:1985,lat:59.36083,lon:17.97056,l:["Blå linjen"]},
+      {n:"Skarpnäcks",y:1994,lat:59.26681,lon:18.13333,l:["Gröna linjen"]}];
+
+    // Stockholm city population — Wikipedia (1900-1960) + SCB BE0101 API (1968-2024)
+    const CITY_POP = [{y:1900,p:305234},{y:1910,p:342323},{y:1920,p:406730},{y:1930,p:502213},{y:1940,p:590503},{y:1950,p:744431},{y:1960,p:808484},{y:1968,p:758930},{y:1969,p:752361},{y:1970,p:744912},{y:1971,p:728374},{y:1972,p:702304},{y:1973,p:681318},{y:1974,p:671226},{y:1975,p:665202},{y:1976,p:661258},{y:1977,p:658435},{y:1978,p:653929},{y:1979,p:649384},{y:1980,p:647214},{y:1981,p:647115},{y:1982,p:649686},{y:1983,p:650952},{y:1984,p:653455},{y:1985,p:659030},{y:1986,p:663217},{y:1987,p:666810},{y:1988,p:669485},{y:1989,p:672187},{y:1990,p:674452},{y:1991,p:679364},{y:1992,p:684576},{y:1993,p:692954},{y:1994,p:703627},{y:1995,p:711119},{y:1996,p:718462},{y:1997,p:727339},{y:1998,p:736113},{y:1999,p:743703},{y:2000,p:750348},{y:2001,p:754948},{y:2002,p:758148},{y:2003,p:761721},{y:2004,p:765044},{y:2005,p:771038},{y:2006,p:782885},{y:2007,p:795163},{y:2008,p:810120},{y:2009,p:829417},{y:2010,p:847073},{y:2011,p:864324},{y:2012,p:881235},{y:2013,p:897700},{y:2014,p:911989},{y:2015,p:923516},{y:2016,p:935619},{y:2017,p:949761},{y:2018,p:962154},{y:2019,p:974073},{y:2020,p:975551},{y:2021,p:978770},{y:2022,p:984748},{y:2023,p:988943},{y:2024,p:995574}];
+
+    // Stockholms län (county) population — SCB BE0101 API, 1968-2024 only.
+    // The "suburbs" series we render is COUNTY_POP - CITY_POP for each year (only valid 1968+).
+    const COUNTY_POP = [{y:1968,p:1427236},{y:1969,p:1453754},{y:1970,p:1477990},{y:1971,p:1486648},{y:1972,p:1485655},{y:1973,p:1485587},{y:1974,p:1489144},{y:1975,p:1493546},{y:1976,p:1500868},{y:1977,p:1512179},{y:1978,p:1519114},{y:1979,p:1524266},{y:1980,p:1528200},{y:1981,p:1535539},{y:1982,p:1544454},{y:1983,p:1551165},{y:1984,p:1562490},{y:1985,p:1578299},{y:1986,p:1593333},{y:1987,p:1606157},{y:1988,p:1617038},{y:1989,p:1629631},{y:1990,p:1641669},{y:1991,p:1654511},{y:1992,p:1669840},{y:1993,p:1686230},{y:1994,p:1708502},{y:1995,p:1725756},{y:1996,p:1744330},{y:1997,p:1762924},{y:1998,p:1783440},{y:1999,p:1803377},{y:2000,p:1823210},{y:2001,p:1838882},{y:2002,p:1850467},{y:2003,p:1860872},{y:2004,p:1872900},{y:2005,p:1889945},{y:2006,p:1918104},{y:2007,p:1949516},{y:2008,p:1981263},{y:2009,p:2019182},{y:2010,p:2054343},{y:2011,p:2091473},{y:2012,p:2127006},{y:2013,p:2163042},{y:2014,p:2198044},{y:2015,p:2231439},{y:2016,p:2269060},{y:2017,p:2308143},{y:2018,p:2344124},{y:2019,p:2377081},{y:2020,p:2391990},{y:2021,p:2415139},{y:2022,p:2440027},{y:2023,p:2454821},{y:2024,p:2473307}];
+    const COUNTY_FIRST_YEAR = COUNTY_POP[0].y;
+
+    // Annotations on the chart — key historical moments
+    const ANNOTATIONS = [
+      {y:1933, label:"Premetro tunnel"},
+      {y:1950, label:"First Tunnelbana opens"},
+      {y:1957, label:"T-Centralen unifies the system"},
+      {y:1960, label:"City pop peaks (808k)"},
+      {y:1975, label:"Blue line + ABC suburbs"},
+      {y:1981, label:"City pop bottoms (647k)"},
+      {y:2017, label:"Citybanan"},
+    ];
+
+    const LINE_COLORS = {
+      "Röda linjen":  "#ff5252",
+      "Blå linjen":   "#4cc9ff",
+      "Gröna linjen": "#6ee06e"
+    };
+
+    const MIN_YEAR = 1900;
+    const MAX_YEAR = 2024;
+
+    // ============================================================
+    // BOOT
+    // ============================================================
+    window.addEventListener('DOMContentLoaded', () => {
+      if (typeof L === 'undefined' || typeof d3 === 'undefined') {
+        const e = document.getElementById('boot-error');
+        e.style.display = 'block';
+        e.innerHTML = 'A library failed to load (Leaflet or D3). The page needs internet access.';
+        return;
+      }
+      try { boot(); }
+      catch (err) {
+        console.error(err);
+        document.getElementById('boot-error').style.display = 'block';
+        document.getElementById('boot-error').innerHTML = 'Boot error: ' + err.message;
+      }
+    });
+
+    function boot() {
+      const map = initMap();
+      const charts = initCharts();
+      const catchment = initCatchment(map);
+      initArrivalLayer(map);  // self-contained, no per-year update needed
+      let currentYear = MIN_YEAR;
+
+      function setYear(y) {
+        currentYear = y;
+        document.getElementById('panel-year').textContent = y;
+        updateMap(map, y);
+        updateStats(y);
+        updateCharts(charts, y);
+        catchment.update(y);
+      }
+
+      const slider = document.getElementById('year-slider');
+      slider.addEventListener('input', e => setYear(+e.target.value));
+
+      const playBtn = document.getElementById('play-btn');
+      let playInterval = null;
+      playBtn.addEventListener('click', () => {
+        if (playInterval) {
+          playBtn.textContent = '▶'; playBtn.classList.remove('playing');
+          clearInterval(playInterval); playInterval = null;
+        } else {
+          playBtn.textContent = '❚❚'; playBtn.classList.add('playing');
+          playInterval = setInterval(() => {
+            let next = currentYear + 1;
+            if (next > MAX_YEAR) next = MIN_YEAR;
+            slider.value = next;
+            setYear(next);
+          }, 350);
+        }
+      });
+
+      // Resize observer to keep charts in sync with the panel width
+      window.addEventListener('resize', () => {
+        charts.pop.resize();
+        charts.stn.resize();
+        updateCharts(charts, currentYear);
+      });
+
+      setYear(MIN_YEAR);
+    }
+
+    // ============================================================
+    // MAP
+    // ============================================================
+    function initMap() {
+      const map = L.map('map', {
+        center: [59.33, 18.0], zoom: 11, zoomControl: false,
+        scrollWheelZoom: true,
+      });
+      L.control.zoom({ position: 'topright' }).addTo(map);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: '© OSM', maxZoom: 18
+      }).addTo(map);
+
+      const ghostLayer = L.layerGroup().addTo(map);
+      for (const s of STATIONS) {
+        L.circleMarker([s.lat, s.lon], {
+          radius: 2.5, color: '#ffffff', opacity: 0.18,
+          fillColor: '#ffffff', fillOpacity: 0.15,
+          weight: 1, interactive: false
+        }).addTo(ghostLayer);
+      }
+      const activeLayer = L.layerGroup().addTo(map);
+      return { map, activeLayer };
+    }
+
+    function updateMap({ activeLayer }, year) {
+      activeLayer.clearLayers();
+      const RECENT = 3;
+      for (const s of STATIONS) {
+        if (s.y > year) continue;
+        const isNew = s.y > year - RECENT;
+        const isInterchange = s.l.length >= 2;
+        const baseColor = LINE_COLORS[s.l[0]] || '#888';
+        const fillColor = isNew ? '#ffe45c' : baseColor;
+        const ringColor = isNew ? '#ffffff' : (isInterchange ? '#ffd989' : '#ffffff');
+        const radius = isNew ? 9 : (isInterchange ? 7 : 6);
+
+        L.circleMarker([s.lat, s.lon], {
+          radius, color: ringColor, weight: 2,
+          fillColor, fillOpacity: 1.0, opacity: 1.0
+        }).bindTooltip(
+          `<b>${s.n}</b><br>${s.l.join(' / ')}<br>Opened ${s.y}`,
+          { direction: 'top', offset: [0, -6] }
+        ).addTo(activeLayer);
+      }
+    }
+
+    // ============================================================
+    // ARRIVAL-YEAR CHOROPLETH — color each DeSO by year metro arrived
+    // ============================================================
+    function initArrivalLayer(mapInfo) {
+      const Y_MIN = 1933, Y_MAX = 1994;  // empirical range of first_served values
+      const toggleBtn = document.getElementById('arrival-toggle');
+      const labelEl   = document.getElementById('arrival-toggle-label');
+      const legendEl  = document.getElementById('arrival-legend');
+      let enabled = false;
+      let layer = null;
+      let geomData = null;
+      let firstServedById = null;
+      let loadingPromise = null;
+
+      // Linear lerp: deep teal → bright cyan, matching the stations color family
+      function arrivalColor(year) {
+        const t = Math.max(0, Math.min(1, (year - Y_MIN) / (Y_MAX - Y_MIN)));
+        const r = Math.round(0x0d + (0x5c - 0x0d) * t);
+        const g = Math.round(0x29 + (0xff - 0x29) * t);
+        const b = Math.round(0x35 + (0xe1 - 0x35) * t);
+        return `rgb(${r}, ${g}, ${b})`;
+      }
+
+      function styleFor(f) {
+        const fs = firstServedById.get(f.properties.id);
+        if (fs == null) {
+          // Never served — barely visible
+          return { fillColor: 'rgba(255,255,255,0.04)', fillOpacity: 1, color: 'rgba(255,255,255,0.06)', weight: 0.3 };
+        }
+        const c = arrivalColor(fs);
+        return { fillColor: c, fillOpacity: 0.65, color: c, weight: 0.3 };
+      }
+
+      // Custom pane below the default overlayPane so catchment rings (if also on)
+      // and station markers always sit above this choropleth.
+      function ensurePane() {
+        if (!mapInfo.map.getPane('arrivalPane')) {
+          mapInfo.map.createPane('arrivalPane');
+          const pane = mapInfo.map.getPane('arrivalPane');
+          pane.style.zIndex = 350;
+        }
+      }
+
+      async function load() {
+        if (loadingPromise) return loadingPromise;
+        labelEl.textContent = 'Loading…';
+        loadingPromise = Promise.all([
+          fetch('data/deso_stockholm.json').then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }),
+          fetch('data/catchment.json').then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }),
+        ]).then(([geo, ctc]) => {
+          geomData = geo;
+          firstServedById = new Map();
+          for (const r of ctc.deso) firstServedById.set(r.id, r.first_served);
+          return { geo, ctc };
+        }).catch(err => { loadingPromise = null; throw err; });
+        return loadingPromise;
+      }
+
+      async function enable() {
+        try { await load(); }
+        catch (err) {
+          labelEl.textContent = 'Needs a web server';
+          toggleBtn.style.borderColor = '#ff6b8a';
+          toggleBtn.style.color = '#ff6b8a';
+          return;
+        }
+        ensurePane();
+        layer = L.geoJSON(geomData, {
+          pane: 'arrivalPane',
+          style: styleFor,
+          onEachFeature: (f, lyr) => {
+            const fs = firstServedById.get(f.properties.id);
+            lyr.bindTooltip(
+              `<b>DeSO ${f.properties.id}</b><br>${fs == null ? 'Never within 1 km of metro' : 'Metro arrived <b>' + fs + '</b>'}`,
+              { sticky: true }
+            );
+          }
+        });
+        layer.addTo(mapInfo.map);
+        enabled = true;
+        labelEl.textContent = 'Hide metro arrival year';
+        toggleBtn.classList.add('active');
+        legendEl.classList.add('visible');
+      }
+
+      function disable() {
+        if (layer) { mapInfo.map.removeLayer(layer); layer = null; }
+        enabled = false;
+        labelEl.textContent = 'Show metro arrival year';
+        toggleBtn.classList.remove('active');
+        legendEl.classList.remove('visible');
+      }
+
+      toggleBtn.addEventListener('click', () => enabled ? disable() : enable());
+
+      return {};  // static layer, no per-year update needed
+    }
+
+    // ============================================================
+    // CATCHMENT — % of (today's) Stockholmers within 1 km of a station
+    // ============================================================
+    function initCatchment(mapInfo) {
+      const RADIUS_M = 1000;
+      const toggleBtn = document.getElementById('catchment-toggle');
+      const labelEl   = document.getElementById('catchment-toggle-label');
+      const card      = document.getElementById('catchment-card');
+      const pctEl     = document.getElementById('catchment-pct');
+      const peopleEl  = document.getElementById('catchment-people');
+      const totalEl   = document.getElementById('catchment-total');
+      const sparkSvg  = document.getElementById('catchment-spark');
+      let ringsEnabled = false;
+      let ringLayer = null;
+      let catchmentData = null;       // {_total_pop_2023, deso: [{id, pop_2023, first_served}]}
+      let curveByYear = null;         // year → served count (precomputed once)
+      let totalPop = 0;
+      let loadingPromise = null;
+      let lastYear = MIN_YEAR;
+      let sparkBuilt = false;
+
+      async function loadData() {
+        if (loadingPromise) return loadingPromise;
+        loadingPromise = fetch('data/catchment.json')
+          .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+          .then(json => {
+            catchmentData = json;
+            totalPop = json._total_pop_2023;
+            curveByYear = computeCurve(json.deso);
+            totalEl.textContent = totalPop.toLocaleString('sv-SE');
+            return json;
+          })
+          .catch(err => { loadingPromise = null; throw err; });
+        return loadingPromise;
+      }
+
+      function computeCurve(records) {
+        // For each year, sum pop_2023 of DeSOs whose first_served is <= year.
+        // Pre-sort so we can sweep linearly: O(n log n) once.
+        const sorted = records
+          .filter(r => r.first_served !== null)
+          .slice()
+          .sort((a, b) => a.first_served - b.first_served);
+        const curve = new Map();
+        let cum = 0, idx = 0;
+        for (let y = MIN_YEAR; y <= MAX_YEAR; y++) {
+          while (idx < sorted.length && sorted[idx].first_served <= y) {
+            cum += sorted[idx].pop_2023;
+            idx++;
+          }
+          curve.set(y, cum);
+        }
+        return curve;
+      }
+
+      function buildSpark() {
+        if (sparkBuilt || !curveByYear) return;
+        const w = sparkSvg.getBoundingClientRect().width || 380;
+        const h = 36;
+        sparkSvg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+        const xs = d3.scaleLinear().domain([MIN_YEAR, MAX_YEAR]).range([2, w - 2]);
+        const ys = d3.scaleLinear().domain([0, totalPop]).range([h - 2, 4]);
+        const series = [];
+        for (let y = MIN_YEAR; y <= MAX_YEAR; y++) series.push({ y, v: curveByYear.get(y) });
+        const area = d3.area().x(d => xs(d.y)).y0(h).y1(d => ys(d.v)).curve(d3.curveStepAfter);
+        const line = d3.line().x(d => xs(d.y)).y(d => ys(d.v)).curve(d3.curveStepAfter);
+        const svg = d3.select(sparkSvg);
+        svg.selectAll('*').remove();
+        svg.append('path').attr('d', area(series)).attr('fill', '#ffd989').attr('fill-opacity', 0.18);
+        svg.append('path').attr('d', line(series)).attr('fill', 'none').attr('stroke', '#ffd989').attr('stroke-width', 1.5);
+        svg.append('line').attr('class', 'spark-playhead')
+          .attr('y1', 0).attr('y2', h).attr('stroke', '#fff').attr('stroke-opacity', 0.5).attr('stroke-dasharray', '2,2');
+        svg.append('circle').attr('class', 'spark-dot').attr('r', 3).attr('fill', '#ffe45c').attr('stroke', '#fff').attr('stroke-width', 1);
+        sparkBuilt = true;
+        // expose elements for live update
+        sparkSvg._xs = xs; sparkSvg._ys = ys;
+      }
+
+      function updateSpark(year) {
+        if (!sparkBuilt) return;
+        const xs = sparkSvg._xs, ys = sparkSvg._ys;
+        const x = xs(year);
+        const v = curveByYear.get(year) ?? 0;
+        d3.select(sparkSvg).select('.spark-playhead').attr('x1', x).attr('x2', x);
+        d3.select(sparkSvg).select('.spark-dot').attr('cx', x).attr('cy', ys(v));
+      }
+
+      function update(year) {
+        lastYear = year;
+        if (!curveByYear) return;
+        const served = curveByYear.get(year) ?? 0;
+        const pct = totalPop > 0 ? (served / totalPop) * 100 : 0;
+        pctEl.textContent = pct.toFixed(1);
+        peopleEl.textContent = served.toLocaleString('sv-SE');
+        if (!sparkBuilt) buildSpark();
+        updateSpark(year);
+        if (ringsEnabled) renderRings(year);
+      }
+
+      function renderRings(year) {
+        if (ringLayer) { mapInfo.map.removeLayer(ringLayer); ringLayer = null; }
+        const open = STATIONS.filter(s => s.y <= year);
+        if (open.length === 0) return;
+        ringLayer = L.layerGroup();
+        for (const s of open) {
+          L.circle([s.lat, s.lon], {
+            radius: RADIUS_M,
+            color: 'rgba(255, 217, 137, 0.4)', weight: 0.5,
+            fillColor: 'rgba(255, 217, 137, 1)', fillOpacity: 0.10,
+            interactive: false
+          }).addTo(ringLayer);
+        }
+        ringLayer.addTo(mapInfo.map);
+        // Push under markers but above tiles
+        ringLayer.eachLayer(lyr => lyr.bringToBack && lyr.bringToBack());
+      }
+
+      async function enableRings() {
+        try { await loadData(); }
+        catch (err) {
+          labelEl.textContent = 'Needs a web server';
+          toggleBtn.style.borderColor = '#ff6b8a';
+          toggleBtn.style.color = '#ff6b8a';
+          return;
+        }
+        ringsEnabled = true;
+        labelEl.textContent = 'Hide 1 km catchment';
+        toggleBtn.classList.add('active');
+        renderRings(lastYear);
+      }
+      function disableRings() {
+        if (ringLayer) { mapInfo.map.removeLayer(ringLayer); ringLayer = null; }
+        ringsEnabled = false;
+        labelEl.textContent = 'Show 1 km catchment';
+        toggleBtn.classList.remove('active');
+      }
+
+      toggleBtn.addEventListener('click', () => ringsEnabled ? disableRings() : enableRings());
+
+      // Auto-load data so the callout populates without needing the toggle
+      loadData().catch(err => {
+        // Graceful fallback for file:// — show a polite "—" instead of 0
+        pctEl.textContent = '—';
+        peopleEl.textContent = '—';
+        totalEl.textContent = '2 454 821';
+        const sub = card.querySelector('.sub');
+        if (sub) sub.innerHTML = '<span style="color:#ff6b8a">Needs a web server to load catchment data</span>';
+      });
+
+      return { update };
+    }
+
+    // ============================================================
+    // STATS PANEL
+    // ============================================================
+    function interpolateSeries(series, year) {
+      if (year <= series[0].y) return series[0].p;
+      if (year >= series[series.length - 1].y) return series[series.length - 1].p;
+      for (let i = 1; i < series.length; i++) {
+        if (series[i].y >= year) {
+          const a = series[i - 1], b = series[i];
+          const t = (year - a.y) / (b.y - a.y);
+          return Math.round(a.p + t * (b.p - a.p));
+        }
+      }
+      return series[series.length - 1].p;
+    }
+    const popAt    = year => interpolateSeries(CITY_POP, year);
+    const countyAt = year => year < COUNTY_FIRST_YEAR ? null : interpolateSeries(COUNTY_POP, year);
+    const suburbsAt = year => {
+      const c = countyAt(year);
+      return c === null ? null : c - popAt(year);
+    };
+    function stationsAt(year) { return STATIONS.filter(s => s.y <= year).length; }
+
+    function fmt(n) { return n.toLocaleString('sv-SE'); }
+    function deltaStr(curr, prev) {
+      const d = curr - prev;
+      if (d === 0) return ' ';
+      const sign = d > 0 ? '+' : '−';
+      return `${sign}${fmt(Math.abs(d))} from prev. year`;
+    }
+
+    function updateStats(year) {
+      const pop = popAt(year);
+      const popPrev = popAt(year - 1);
+      const cty = countyAt(year);
+      const ctyPrev = countyAt(year - 1);
+      const stn = stationsAt(year);
+      const stnPrev = stationsAt(year - 1);
+
+      document.getElementById('pop-value').textContent = fmt(pop);
+      const popDelta = document.getElementById('pop-delta');
+      popDelta.textContent = deltaStr(pop, popPrev);
+      popDelta.className = 'delta ' + (pop > popPrev ? 'up' : pop < popPrev ? 'down' : '');
+
+      const countyValEl = document.getElementById('county-value');
+      const countyDeltaEl = document.getElementById('county-delta');
+      if (cty === null) {
+        countyValEl.textContent = '—';
+        countyDeltaEl.textContent = `data from ${COUNTY_FIRST_YEAR}`;
+        countyDeltaEl.className = 'delta';
+      } else {
+        countyValEl.textContent = fmt(cty);
+        if (ctyPrev === null) { countyDeltaEl.textContent = ' '; countyDeltaEl.className = 'delta'; }
+        else {
+          countyDeltaEl.textContent = deltaStr(cty, ctyPrev);
+          countyDeltaEl.className = 'delta ' + (cty > ctyPrev ? 'up' : cty < ctyPrev ? 'down' : '');
+        }
+      }
+
+      document.getElementById('stn-value').textContent = fmt(stn);
+      const stnDelta = document.getElementById('stn-delta');
+      const dStn = stn - stnPrev;
+      stnDelta.textContent = dStn === 0 ? ' ' : `+${dStn} this year`;
+      stnDelta.className = 'delta ' + (dStn > 0 ? 'up' : '');
+
+      document.getElementById('stations-count').textContent = stn;
+    }
+
+    // ============================================================
+    // CHARTS (D3)
+    // ============================================================
+    function initCharts() {
+      return {
+        pop: makeChart('#pop-chart', '#pop-current', {
+          data: CITY_POP.map(d => ({ y: d.y, v: d.p })),
+          // Second layer: county total, stacked above city. Bottom of the layer = city value
+          // at that year, top = county value. Visible 1968+ only.
+          stack2: COUNTY_POP.map(d => ({ y: d.y, v: d.p })),
+          stack2Bottom: popAt,    // function (year) → value where layer 2 starts
+          stack2FillId: 'grad-pop-2',
+          stack2FillColor: '#c89060',
+          fillId: 'grad-pop',
+          fillColor: '#ffd989',
+          formatY: n => (n >= 1000 ? Math.round(n/1000) + 'k' : n),
+        }),
+        stn: makeChart('#stn-chart', '#stn-current', {
+          data: cumulativeStations(),
+          fillId: 'grad-stn',
+          fillColor: '#5cffe1',
+          formatY: n => n,
+        }),
+      };
+    }
+
+    function cumulativeStations() {
+      // Step series 1900..2024 with cumulative count
+      const series = [];
+      for (let y = MIN_YEAR; y <= MAX_YEAR; y++) {
+        series.push({ y, v: STATIONS.filter(s => s.y <= y).length });
+      }
+      return series;
+    }
+
+    function makeChart(svgSel, currentSel, opts) {
+      const svg = d3.select(svgSel);
+      const margin = { top: 8, right: 12, bottom: 18, left: 36 };
+      const xScale = d3.scaleLinear().domain([MIN_YEAR, MAX_YEAR]);
+      // Y-domain spans both layers if a second one is present
+      const allMax = Math.max(
+        d3.max(opts.data, d => d.v),
+        opts.stack2 ? d3.max(opts.stack2, d => d.v) : 0
+      );
+      const yScale = d3.scaleLinear().domain([0, allMax * 1.05]).nice();
+
+      const defs = svg.append('defs');
+      function addGradient(id, color) {
+        const g = defs.append('linearGradient')
+          .attr('id', id).attr('x1', 0).attr('y1', 0).attr('x2', 0).attr('y2', 1);
+        g.append('stop').attr('offset', '0%').attr('stop-color', color).attr('stop-opacity', 0.55);
+        g.append('stop').attr('offset', '100%').attr('stop-color', color).attr('stop-opacity', 0);
+      }
+      addGradient(opts.fillId, opts.fillColor);
+      if (opts.stack2) addGradient(opts.stack2FillId, opts.stack2FillColor);
+
+      const gAxisX = svg.append('g').attr('class', 'axis x-axis');
+      const gAxisY = svg.append('g').attr('class', 'axis y-axis');
+      const gAnnot = svg.append('g').attr('class', 'annotations');
+      // Layer 1 (city)
+      const pathFuture = svg.append('path').attr('class', 'line-future').attr('stroke', opts.fillColor);
+      const areaFuture = svg.append('path').attr('class', 'area-future').attr('fill', `url(#${opts.fillId})`);
+      const areaPast   = svg.append('path').attr('class', 'area-past').attr('fill', `url(#${opts.fillId})`);
+      const pathPast   = svg.append('path').attr('class', 'line-past').attr('stroke', opts.fillColor);
+      // Layer 2 (suburbs/county) — drawn ABOVE layer 1
+      let pathFuture2, areaFuture2, areaPast2, pathPast2;
+      if (opts.stack2) {
+        pathFuture2 = svg.append('path').attr('class', 'line-future').attr('stroke', opts.stack2FillColor);
+        areaFuture2 = svg.append('path').attr('class', 'area-future').attr('fill', `url(#${opts.stack2FillId})`);
+        areaPast2   = svg.append('path').attr('class', 'area-past').attr('fill', `url(#${opts.stack2FillId})`);
+        pathPast2   = svg.append('path').attr('class', 'line-past').attr('stroke', opts.stack2FillColor);
+      }
+      // Playhead (drawn last so it sits on top)
+      const playLine   = svg.append('line').attr('class', 'playhead');
+      const playDot    = svg.append('circle').attr('class', 'playhead-dot').attr('r', 4);
+
+      function resize() {
+        const node = svg.node();
+        const rect = node.getBoundingClientRect();
+        const w = rect.width || 380, h = rect.height || 130;
+        svg.attr('viewBox', `0 0 ${w} ${h}`);
+        xScale.range([margin.left, w - margin.right]);
+        yScale.range([h - margin.bottom, margin.top]);
+
+        gAxisX.attr('transform', `translate(0,${h - margin.bottom})`)
+          .call(d3.axisBottom(xScale).ticks(5).tickFormat(d3.format('d')).tickSize(4));
+        gAxisY.attr('transform', `translate(${margin.left},0)`)
+          .call(d3.axisLeft(yScale).ticks(3).tickFormat(opts.formatY).tickSize(4));
+
+        gAnnot.selectAll('*').remove();
+        ANNOTATIONS.forEach(a => {
+          if (a.y < MIN_YEAR || a.y > MAX_YEAR) return;
+          const x = xScale(a.y);
+          gAnnot.append('line')
+            .attr('class', 'annotation-tick')
+            .attr('x1', x).attr('x2', x)
+            .attr('y1', margin.top).attr('y2', h - margin.bottom);
+        });
+      }
+
+      return { svg, xScale, yScale, margin, opts, gAnnot,
+               pathFuture, areaFuture, areaPast, pathPast,
+               pathFuture2, areaFuture2, areaPast2, pathPast2,
+               playLine, playDot, resize };
+    }
+
+    function updateCharts(charts, year) {
+      drawChart(charts.pop, year);
+      drawChart(charts.stn, year);
+
+      // Top labels above each chart
+      const popVal = popAt(year);
+      const ctyVal = countyAt(year);
+      const stnVal = stationsAt(year);
+      const sep = `<span style="color:var(--text-dim)"> · </span>`;
+      const cityPart = `<span style="color:var(--pop)">city <b>${fmt(popVal)}</b></span>`;
+      const countyPart = ctyVal === null
+        ? `<span style="color:var(--text-dim)">county data from ${COUNTY_FIRST_YEAR}</span>`
+        : `<span style="color:var(--pop-2)">county <b>${fmt(ctyVal)}</b></span>`;
+      const suburbPart = ctyVal === null
+        ? ''
+        : `${sep}suburbs <b>${fmt(ctyVal - popVal)}</b>`;
+      document.getElementById('pop-current').innerHTML = `${cityPart}${sep}${countyPart}${suburbPart}`;
+      document.getElementById('stn-current').innerHTML =
+        `<b>${stnVal}</b> in ${year} ${sep} total in dataset: <b>${STATIONS.length}</b>`;
+    }
+
+    function drawChart(c, year) {
+      // Always resize: d3.scaleLinear()'s default range is [0, 1] so the previous
+      // "uninitialized" check never fired and charts could render at the wrong scale.
+      c.resize();
+      const { xScale, yScale, opts } = c;
+      const data = opts.data;
+      const splitX = xScale(year);
+      const baselineY = yScale(0);
+
+      const line = d3.line()
+        .x(d => xScale(d.y))
+        .y(d => yScale(d.v))
+        .curve(d3.curveMonotoneX);
+      const area = d3.area()
+        .x(d => xScale(d.y))
+        .y0(baselineY)
+        .y1(d => yScale(d.v))
+        .curve(d3.curveMonotoneX);
+
+      const past = data.filter(d => d.y <= year);
+      const future = data.filter(d => d.y >= year);
+      const interp = interpolateAt(data, year);
+      if (past.length === 0 || past[past.length - 1].y < year) past.push(interp);
+      if (future.length === 0 || future[0].y > year) future.unshift(interp);
+
+      c.pathFuture.attr('d', line(future));
+      c.pathPast.attr('d', line(past));
+      c.areaFuture.attr('d', area(future));
+      c.areaPast.attr('d', area(past));
+
+      // ---------- Layer 2 (stacked above layer 1) ----------
+      let interp2top = null;
+      if (opts.stack2) {
+        const s2 = opts.stack2;
+        const bottomFn = opts.stack2Bottom;  // (year) → value where layer starts
+        // Build a series of {y, v: bottom-value-at-y, vTop: top-value-at-y}
+        const enriched = s2.map(d => ({ y: d.y, v: bottomFn(d.y), vTop: d.v }));
+        const interpBot = bottomFn(year);
+        const interpTop = interpolateAt(s2, year);
+        interp2top = year < s2[0].y ? null : { y: year, v: interpBot, vTop: interpTop.v };
+
+        const past2   = enriched.filter(d => d.y <= year);
+        const future2 = enriched.filter(d => d.y >= year);
+        if (interp2top) {
+          if (past2.length === 0 || past2[past2.length - 1].y < year) past2.push(interp2top);
+          if (future2.length === 0 || future2[0].y > year) future2.unshift(interp2top);
+        }
+
+        const stackArea = d3.area()
+          .x(d => xScale(d.y))
+          .y0(d => yScale(d.v))
+          .y1(d => yScale(d.vTop))
+          .curve(d3.curveMonotoneX);
+        const stackLine = d3.line()
+          .x(d => xScale(d.y))
+          .y(d => yScale(d.vTop))
+          .curve(d3.curveMonotoneX);
+
+        c.areaPast2.attr('d', stackArea(past2));
+        c.areaFuture2.attr('d', stackArea(future2));
+        c.pathPast2.attr('d', stackLine(past2));
+        c.pathFuture2.attr('d', stackLine(future2));
+      }
+
+      // Playhead — use top of upper stack if present, else top of layer 1
+      const cy = interp2top ? yScale(interp2top.vTop) : yScale(interp.v);
+      c.playLine.attr('x1', splitX).attr('x2', splitX)
+        .attr('y1', c.margin.top).attr('y2', baselineY);
+      c.playDot.attr('cx', splitX).attr('cy', cy);
+    }
+
+    function interpolateAt(data, year) {
+      if (year <= data[0].y) return { y: year, v: data[0].v };
+      if (year >= data[data.length - 1].y) return { y: year, v: data[data.length - 1].v };
+      for (let i = 1; i < data.length; i++) {
+        if (data[i].y >= year) {
+          const a = data[i - 1], b = data[i];
+          const t = (year - a.y) / (b.y - a.y);
+          return { y: year, v: a.v + t * (b.v - a.v) };
+        }
+      }
+      return { y: year, v: data[data.length - 1].v };
+    }
+  </script>
+</body>
+</html>
