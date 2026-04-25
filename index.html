@@ -138,7 +138,6 @@
 
     #catchment-toggle.active { background: rgba(255,217,137,0.18); border-color: rgba(255,217,137,0.5); color: var(--pop); }
     #arrival-toggle.active { background: rgba(92,255,225,0.15); border-color: rgba(92,255,225,0.45); color: var(--accent); }
-    #change-toggle.active { background: rgba(110,224,110,0.15); border-color: rgba(110,224,110,0.45); color: var(--line-g); }
 
     #arrival-legend {
       pointer-events: auto;
@@ -155,22 +154,6 @@
       border: 1px solid rgba(92,255,225,0.2); }
     #arrival-legend .ramp-ticks { display: flex; justify-content: space-between; margin-top: 3px; font-variant-numeric: tabular-nums; }
     #arrival-legend .ramp-note { margin-top: 5px; color: var(--text-dim); font-size: 9.5px; }
-
-    #change-legend {
-      pointer-events: auto;
-      background: rgba(20,27,46,0.85);
-      border: 1px solid rgba(110,224,110,0.25); border-radius: 8px;
-      padding: 9px 12px; font-size: 10px; color: var(--text-muted);
-      backdrop-filter: blur(8px); display: none;
-      letter-spacing: 0.5px;
-    }
-    #change-legend.visible { display: block; }
-    #change-legend .ramp-label { font-weight: 600; color: var(--text); margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1.1px; font-size: 9.5px; }
-    #change-legend .ramp-bar { height: 8px; width: 220px; border-radius: 2px;
-      background: linear-gradient(to right, #ff6b8a, #1a2138 50%, #6ee06e);
-      border: 1px solid rgba(255,255,255,0.1); }
-    #change-legend .ramp-ticks { display: flex; justify-content: space-between; margin-top: 3px; font-variant-numeric: tabular-nums; }
-    #change-legend .ramp-note { margin-top: 5px; color: var(--text-dim); font-size: 9.5px; }
 
     /* Catchment callout in right panel */
     .catchment-card {
@@ -452,15 +435,6 @@
             </span>
             <span id="arrival-toggle-label">Show metro arrival year</span>
           </button>
-          <button id="change-toggle" class="map-toggle" type="button">
-            <span class="swatch-strip">
-              <span style="background: #ff6b8a"></span>
-              <span style="background: #5b4858"></span>
-              <span style="background: #5b8a55"></span>
-              <span style="background: #6ee06e"></span>
-            </span>
-            <span id="change-toggle-label">Show population change 2010–2023</span>
-          </button>
           <button id="catchment-toggle" class="map-toggle" type="button">
             <span class="ring-icon"></span>
             <span id="catchment-toggle-label">Show 1 km catchment</span>
@@ -470,12 +444,6 @@
             <div class="ramp-bar"></div>
             <div class="ramp-ticks"><span>1933</span><span>1957</span><span>1975</span><span>1994</span></div>
             <div class="ramp-note">Faded grey = never within 1 km of a station</div>
-          </div>
-          <div id="change-legend">
-            <div class="ramp-label">Population change 2010–2023, per DeSO</div>
-            <div class="ramp-bar"></div>
-            <div class="ramp-ticks"><span>−25%</span><span>0</span><span>+25%</span><span>+50%+</span></div>
-            <div class="ramp-note">Median DeSO: +8.6% · Outliers above +50% clamped (new-build areas)</div>
           </div>
         </div>
       </div>
@@ -702,8 +670,7 @@
       const map = initMap();
       const charts = initCharts();
       const catchment = initCatchment(map);
-      initArrivalLayer(map);   // self-contained, no per-year update needed
-      initChangeLayer(map);    // self-contained, static 2010-2023 % change
+      initArrivalLayer(map);  // self-contained, no per-year update needed
       let currentYear = MIN_YEAR;
 
       function setYear(y) {
@@ -794,107 +761,6 @@
     }
 
     // ============================================================
-    // POPULATION-CHANGE CHOROPLETH — diverging color by 2010-2023 % change
-    // ============================================================
-    function initChangeLayer(mapInfo) {
-      const CLAMP = 50;  // % change at which the ramp saturates (red at -50, green at +50)
-      const toggleBtn = document.getElementById('change-toggle');
-      const labelEl   = document.getElementById('change-toggle-label');
-      const legendEl  = document.getElementById('change-legend');
-      let enabled = false;
-      let layer = null;
-      let geomData = null;
-      let loadingPromise = null;
-
-      // Diverging palette: rose (#ff6b8a) → dark surface (#1a2138) → bright green (#6ee06e)
-      function changeColor(pct) {
-        if (pct == null) return 'rgba(255,255,255,0.04)';
-        const t = Math.max(-1, Math.min(1, pct / CLAMP));
-        // Interpolate through the dark midpoint
-        const mid = [0x1a, 0x21, 0x38];
-        const lo  = [0xff, 0x6b, 0x8a];
-        const hi  = [0x6e, 0xe0, 0x6e];
-        const target = t < 0 ? lo : hi;
-        const k = Math.abs(t);
-        const r = Math.round(mid[0] + (target[0] - mid[0]) * k);
-        const g = Math.round(mid[1] + (target[1] - mid[1]) * k);
-        const b = Math.round(mid[2] + (target[2] - mid[2]) * k);
-        return `rgb(${r}, ${g}, ${b})`;
-      }
-
-      function styleFor(f) {
-        const pct = f.properties.pct_change;
-        if (pct == null) return { fillColor: 'rgba(255,255,255,0.04)', fillOpacity: 1, color: 'rgba(255,255,255,0.06)', weight: 0.3 };
-        const c = changeColor(pct);
-        return { fillColor: c, fillOpacity: 0.65, color: c, weight: 0.3 };
-      }
-
-      function ensurePane() {
-        if (!mapInfo.map.getPane('arrivalPane')) {
-          mapInfo.map.createPane('arrivalPane');
-          mapInfo.map.getPane('arrivalPane').style.zIndex = 350;
-        }
-      }
-
-      async function load() {
-        if (loadingPromise) return loadingPromise;
-        labelEl.textContent = 'Loading…';
-        loadingPromise = fetch('data/deso_stockholm.json')
-          .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-          .then(json => { geomData = json; return json; })
-          .catch(err => { loadingPromise = null; throw err; });
-        return loadingPromise;
-      }
-
-      async function enable() {
-        try { await load(); }
-        catch (err) {
-          labelEl.textContent = 'Needs a web server';
-          toggleBtn.style.borderColor = '#ff6b8a';
-          toggleBtn.style.color = '#ff6b8a';
-          return;
-        }
-        ensurePane();
-        layer = L.geoJSON(geomData, {
-          pane: 'arrivalPane',
-          style: styleFor,
-          onEachFeature: (f, lyr) => {
-            const p = f.properties;
-            lyr.bindTooltip(
-              p.pct_change == null
-                ? `<b>DeSO ${p.id}</b><br>No change data`
-                : `<b>DeSO ${p.id}</b><br>${p.pop_2010.toLocaleString('sv-SE')} → ${p.pop_2023.toLocaleString('sv-SE')}<br><b>${p.pct_change > 0 ? '+' : ''}${p.pct_change}%</b> 2010 → 2023`,
-              { sticky: true }
-            );
-          }
-        });
-        layer.addTo(mapInfo.map);
-        enabled = true;
-        labelEl.textContent = 'Hide population change 2010–2023';
-        toggleBtn.classList.add('active');
-        legendEl.classList.add('visible');
-        // Mutual exclusion: any other choropleth turns off
-        window.dispatchEvent(new CustomEvent('choropleth-activated', { detail: 'change' }));
-      }
-
-      window.addEventListener('choropleth-activated', e => {
-        if (e.detail !== 'change' && enabled) disable();
-      });
-
-      function disable() {
-        if (layer) { mapInfo.map.removeLayer(layer); layer = null; }
-        enabled = false;
-        labelEl.textContent = 'Show population change 2010–2023';
-        toggleBtn.classList.remove('active');
-        legendEl.classList.remove('visible');
-      }
-
-      toggleBtn.addEventListener('click', () => enabled ? disable() : enable());
-
-      return {};
-    }
-
-    // ============================================================
     // ARRIVAL-YEAR CHOROPLETH — color each DeSO by year metro arrived
     // ============================================================
     function initArrivalLayer(mapInfo) {
@@ -977,7 +843,6 @@
         labelEl.textContent = 'Hide metro arrival year';
         toggleBtn.classList.add('active');
         legendEl.classList.add('visible');
-        window.dispatchEvent(new CustomEvent('choropleth-activated', { detail: 'arrival' }));
       }
 
       function disable() {
@@ -989,10 +854,6 @@
       }
 
       toggleBtn.addEventListener('click', () => enabled ? disable() : enable());
-
-      window.addEventListener('choropleth-activated', e => {
-        if (e.detail !== 'arrival' && enabled) disable();
-      });
 
       return {};  // static layer, no per-year update needed
     }

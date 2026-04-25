@@ -103,7 +103,6 @@ const catchmentPctAt = year => (catchmentAt(year) / catchmentTotal) * 100;
 const year = view(Inputs.range([1900, 2024], { value: 1900, step: 1, label: "Year", width: "100%" }));
 const showRings    = view(Inputs.toggle({ label: "Show 1 km Tunnelbana catchment", value: false }));
 const showArrival  = view(Inputs.toggle({ label: "Show metro arrival year (per DeSO neighborhood)", value: false }));
-const showChange   = view(Inputs.toggle({ label: "Show population change 2010–2023 (per DeSO)", value: false }));
 ```
 
 <div class="grid grid-cols-2" style="gap: 14px;">
@@ -182,53 +181,6 @@ const tunnelbanaMap = (() => {
       { direction: 'top', offset: [0, -6] }
     ).addTo(layer);
   }
-}
-```
-
-```js
-// Reactive: population-change choropleth (static — colored by 2010-2023 % change per DeSO)
-{
-  const map = tunnelbanaMap._map;
-  if (!map) return;
-  if (tunnelbanaMap._change) { map.removeLayer(tunnelbanaMap._change); tunnelbanaMap._change = null; }
-  if (!showChange) return;
-  if (!map.getPane("arrivalPane")) {
-    map.createPane("arrivalPane");
-    map.getPane("arrivalPane").style.zIndex = 350;
-  }
-  const CLAMP = 50;
-  const changeColor = pct => {
-    if (pct == null) return "rgba(255,255,255,0.04)";
-    const t = Math.max(-1, Math.min(1, pct / CLAMP));
-    const mid = [0x1a, 0x21, 0x38];
-    const target = t < 0 ? [0xff, 0x6b, 0x8a] : [0x6e, 0xe0, 0x6e];
-    const k = Math.abs(t);
-    const r = Math.round(mid[0] + (target[0] - mid[0]) * k);
-    const g = Math.round(mid[1] + (target[1] - mid[1]) * k);
-    const b = Math.round(mid[2] + (target[2] - mid[2]) * k);
-    return `rgb(${r}, ${g}, ${b})`;
-  };
-  const layer = L.geoJSON(desoGeo, {
-    pane: "arrivalPane",
-    style: f => {
-      const pct = f.properties.pct_change;
-      if (pct == null) return { fillColor: "rgba(255,255,255,0.04)", fillOpacity: 1, color: "rgba(255,255,255,0.06)", weight: 0.3 };
-      const c = changeColor(pct);
-      return { fillColor: c, fillOpacity: 0.65, color: c, weight: 0.3 };
-    },
-    onEachFeature: (f, lyr) => {
-      const p = f.properties;
-      lyr.bindTooltip(
-        p.pct_change == null
-          ? `<b>DeSO ${p.id}</b><br>No change data`
-          : `<b>DeSO ${p.id}</b><br>${p.pop_2010.toLocaleString("sv-SE")} → ${p.pop_2023.toLocaleString("sv-SE")}<br><b>${p.pct_change > 0 ? "+" : ""}${p.pct_change}%</b> 2010 → 2023`,
-        { sticky: true }
-      );
-    }
-  });
-  layer.addTo(map);
-  tunnelbanaMap._change = layer;
-  invalidation.then(() => { if (tunnelbanaMap._change === layer) { map.removeLayer(layer); tunnelbanaMap._change = null; } });
 }
 ```
 
