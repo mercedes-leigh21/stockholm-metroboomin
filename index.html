@@ -518,9 +518,9 @@
 
     <div id="slider-strip">
       <button id="play-btn" aria-label="Play">▶</button>
-      <input type="range" id="year-slider" min="1900" max="2024" value="1900" step="1">
+      <input type="range" id="year-slider" min="1860" max="2024" value="1860" step="1">
       <div id="year-marks">
-        <span>1900</span><span>1920</span><span>1940</span><span>1950</span><span>1960</span><span>1980</span><span>2000</span><span>2024</span>
+        <span>1860</span><span>1900</span><span>1920</span><span>1940</span><span>1960</span><span>1980</span><span>2000</span><span>2024</span>
       </div>
     </div>
   </div>
@@ -653,6 +653,7 @@
 
     // Annotations on the chart — key historical moments
     const ANNOTATIONS = [
+      {y:1860, label:"First Pendeltåg trunk line"},
       {y:1933, label:"Premetro tunnel"},
       {y:1950, label:"First Tunnelbana opens"},
       {y:1957, label:"T-Centralen unifies the system"},
@@ -668,7 +669,10 @@
       "Gröna linjen": "#6ee06e"
     };
 
-    const MIN_YEAR = 1900;
+    // Slider goes back to 1860 to capture the first Pendeltåg-era stations
+    // (the original southern main line opened that year). Population data only
+    // starts at 1900, so the city/county chart sits flat in the 1860-1900 window.
+    const MIN_YEAR = 1860;
     const MAX_YEAR = 2024;
 
     // ============================================================

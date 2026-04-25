@@ -56,6 +56,7 @@ const lineColors = {
   "Gröna linjen": "#6ee06e"
 };
 const annotations = [
+  { y: 1860, label: "First Pendeltåg trunk line" },
   { y: 1933, label: "Premetro tunnel" },
   { y: 1950, label: "First Tunnelbana opens" },
   { y: 1957, label: "T-Centralen unifies the system" },
@@ -92,7 +93,7 @@ function buildCurve(records, field) {
                         .sort((a, b) => a[field] - b[field]);
   const m = new Map();
   let cum = 0, idx = 0;
-  for (let y = 1900; y <= 2024; y++) {
+  for (let y = 1860; y <= 2024; y++) {
     while (idx < sorted.length && sorted[idx][field] <= y) { cum += sorted[idx].pop_2023; idx++; }
     m.set(y, cum);
   }
@@ -107,7 +108,7 @@ const catchmentPctAt = (year, mode) => (catchmentAt(year, mode) / catchmentTotal
 ```
 
 ```js
-const year = view(Inputs.range([1900, 2024], { value: 1900, step: 1, label: "Year", width: "100%" }));
+const year = view(Inputs.range([1860, 2024], { value: 1860, step: 1, label: "Year", width: "100%" }));
 const showRings    = view(Inputs.toggle({ label: "Show 1 km catchment rings", value: false }));
 const showArrival  = view(Inputs.toggle({ label: "Show metro arrival year (per DeSO neighborhood)", value: false }));
 const showPendeltag = view(Inputs.toggle({ label: "Show Pendeltåg + use any-rail catchment", value: false }));
@@ -306,7 +307,7 @@ const popChart = Plot.plot({
   height: 200, width: 440,
   marginLeft: 50, marginTop: 18, marginBottom: 28,
   style: { background: "transparent", color: "#8a9bb5", fontSize: 10 },
-  x: { domain: [1900, 2024], label: null, tickFormat: "d", tickSize: 4 },
+  x: { domain: [1860, 2024], label: null, tickFormat: "d", tickSize: 4 },
   y: { label: "Greater Stockholm population", tickFormat: d => d/1000 + "k", grid: true, nice: true },
   marks: [
     Plot.ruleX(annotations.map(a => a.y), { stroke: "#5b6a85", strokeOpacity: 0.3, strokeDasharray: "2,3" }),
@@ -339,7 +340,7 @@ const popChart = Plot.plot({
 ```
 
 ```js
-const stnSeries = d3.range(1900, 2025).map(y => ({ year: y, n: stationsAt(y) }));
+const stnSeries = d3.range(1860, 2025).map(y => ({ year: y, n: stationsAt(y) }));
 ```
 
 ```js
@@ -347,7 +348,7 @@ const stnChart = Plot.plot({
   height: 180, width: 440,
   marginLeft: 48, marginTop: 18, marginBottom: 28,
   style: { background: "transparent", color: "#8a9bb5", fontSize: 10 },
-  x: { domain: [1900, 2024], label: null, tickFormat: "d", tickSize: 4 },
+  x: { domain: [1860, 2024], label: null, tickFormat: "d", tickSize: 4 },
   y: { label: "Cumulative stations", labelArrow: false, grid: true, nice: true },
   marks: [
     Plot.ruleX(annotations.map(a => a.y), { stroke: "#5b6a85", strokeOpacity: 0.3, strokeDasharray: "2,3" }),
