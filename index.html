@@ -313,6 +313,93 @@
       padding: 24px 32px; border-radius: 8px; max-width: 600px;
       font-size: 14px; line-height: 1.5; display: none;
     }
+
+    /* ============================================================
+       MOBILE — phones and small tablets (< 800 px)
+       Stack map → panel → fixed slider; shrink type and chrome.
+       ============================================================ */
+    @media (max-width: 800px) {
+      html, body { overflow: auto; height: auto; }
+      #app { display: block; height: auto; min-height: 100vh; }
+
+      #header {
+        padding: 10px 14px 8px;
+        flex-direction: column; align-items: flex-start; gap: 2px;
+      }
+      #header h1 { font-size: 17px; letter-spacing: -0.3px; }
+      #header .subtitle { font-size: 10.5px; }
+      #header .byline { display: none; }  /* save vertical space */
+
+      #main { display: block; }
+
+      #map-wrap { height: 56vh; min-height: 320px; position: relative; }
+
+      #panel {
+        border-left: none;
+        border-top: 1px solid var(--border);
+        padding: 16px 14px 90px;  /* bottom padding so fixed slider doesn't hide content */
+        gap: 14px;
+      }
+      #panel-year { font-size: 56px; letter-spacing: -1.5px; }
+      #panel-year-sub { font-size: 10px; }
+
+      .stat-row { gap: 8px; }
+      .stat { padding: 10px 12px; }
+      .stat .label { font-size: 8.5px; letter-spacing: 1px; }
+      .stat-row .stat .value { font-size: 17px; }
+      .stat .delta { font-size: 10px; }
+
+      .catchment-card { padding: 14px 16px; }
+      .catchment-card .pct { font-size: 44px; letter-spacing: -1.5px; }
+      .catchment-card .pct sup { font-size: 18px; }
+      .catchment-card .sub { font-size: 11px; }
+
+      .chart-block {
+        flex: none;          /* no stretching to fill — explicit height in normal flow */
+        min-height: 170px;
+        padding: 12px 14px 6px;
+      }
+      .chart-block svg { min-height: 130px; }
+
+      /* Slider strip is pinned to the bottom of the viewport on mobile */
+      #slider-strip {
+        position: fixed; bottom: 0; left: 0; right: 0;
+        z-index: 1500;
+        padding: 10px 14px;
+        column-gap: 12px;
+        border-top: 1px solid var(--border);
+        background: rgba(20, 27, 46, 0.95);
+        backdrop-filter: blur(8px);
+      }
+      #play-btn { width: 38px; height: 38px; font-size: 14px; }
+      #year-marks { font-size: 9px; }
+
+      /* Map controls: smaller, still tappable */
+      .map-toggle { padding: 6px 10px; font-size: 11px; }
+      .map-toggle .ring-icon { width: 12px; height: 12px; }
+      .map-toggle .swatch-strip span { width: 5px; height: 10px; }
+      #arrival-legend { padding: 7px 10px; font-size: 9px; }
+      #arrival-legend .ramp-label { font-size: 9px; }
+      #arrival-legend .ramp-bar { width: 160px; }
+      #map-controls { bottom: 14px; right: 14px; gap: 6px; }
+
+      /* Line legend at bottom-left of map: tighter */
+      #legend { bottom: 14px; left: 14px; padding: 6px 10px; font-size: 10px; gap: 10px; }
+      .dot { width: 9px; height: 9px; }
+
+      /* "X stations open" pill */
+      #map-overlay { font-size: 11px; padding: 6px 10px; left: 56px; top: 14px; }
+      #map-overlay b { font-size: 14px; }
+    }
+
+    /* Extra-tight rules for very narrow phones (< 380 px) */
+    @media (max-width: 380px) {
+      #panel-year { font-size: 48px; }
+      .catchment-card .pct { font-size: 38px; }
+      .stat-row .stat .value { font-size: 15px; }
+      #legend { gap: 8px; font-size: 9px; }
+      .legend-item { gap: 4px; }
+    }
   </style>
 </head>
 <body>
@@ -615,11 +702,12 @@
         }
       });
 
-      // Resize observer to keep charts in sync with the panel width
+      // Resize handler: charts re-fit, Leaflet recomputes tile bounds.
       window.addEventListener('resize', () => {
         charts.pop.resize();
         charts.stn.resize();
         updateCharts(charts, currentYear);
+        if (map.map && map.map.invalidateSize) map.map.invalidateSize();
       });
 
       setYear(MIN_YEAR);
