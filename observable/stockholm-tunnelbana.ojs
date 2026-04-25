@@ -34,6 +34,12 @@ COUNTY_FIRST_YEAR = countyPop[0].year
 //// CELL: catchment data (per-DeSO 2023 pop + first_served year)
 catchment = FileAttachment("catchment.json").json()
 
+//// CELL: DeSO polygons (1287 areas, Stockholm county) — used by arrival-year choropleth
+desoGeo = FileAttachment("deso_stockholm.json").json()
+
+//// CELL: lookup of first_served year by DeSO id
+firstServedById = new Map(catchment.deso.map(r => [r.id, r.first_served]))
+
 //// CELL: catchment helpers (pre-computed curve)
 catchmentCurve = {
   const sorted = catchment.deso.filter(r => r.first_served !== null)
@@ -121,6 +127,9 @@ viewof year = Inputs.range([1900, 2024], { value: 1900, step: 1, label: "Year", 
 //// CELL: choropleth toggle
 viewof showRings = Inputs.toggle({ label: "Show 1 km Tunnelbana catchment", value: false })
 
+//// CELL: arrival-year toggle
+viewof showArrival = Inputs.toggle({ label: "Show metro arrival year (per DeSO neighborhood)", value: false })
+
 //// CELL: stat cards
 html`<div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; max-width:600px;">
   <div style="background:#141b2e; border:1px solid rgba(255,255,255,0.07); border-radius:10px; padding:12px 14px;">
@@ -194,6 +203,41 @@ activeLayer = {
 {
   activeLayer.addTo(tbMap);
   invalidation.then(() => tbMap.removeLayer(activeLayer));
+}
+
+//// CELL: side-effect — arrival-year choropleth (static, colored by first_served per DeSO)
+{
+  if (!showArrival) return;
+  if (!tbMap.getPane("arrivalPane")) {
+    tbMap.createPane("arrivalPane");
+    tbMap.getPane("arrivalPane").style.zIndex = 350;
+  }
+  const Y_MIN = 1933, Y_MAX = 1994;
+  const arrivalColor = year => {
+    const t = Math.max(0, Math.min(1, (year - Y_MIN) / (Y_MAX - Y_MIN)));
+    const r = Math.round(0x0d + (0x5c - 0x0d) * t);
+    const g = Math.round(0x29 + (0xff - 0x29) * t);
+    const b = Math.round(0x35 + (0xe1 - 0x35) * t);
+    return `rgb(${r}, ${g}, ${b})`;
+  };
+  const layer = L.geoJSON(desoGeo, {
+    pane: "arrivalPane",
+    style: f => {
+      const fs = firstServedById.get(f.properties.id);
+      if (fs == null) return { fillColor: "rgba(255,255,255,0.04)", fillOpacity: 1, color: "rgba(255,255,255,0.06)", weight: 0.3 };
+      const c = arrivalColor(fs);
+      return { fillColor: c, fillOpacity: 0.65, color: c, weight: 0.3 };
+    },
+    onEachFeature: (f, lyr) => {
+      const fs = firstServedById.get(f.properties.id);
+      lyr.bindTooltip(
+        `<b>DeSO ${f.properties.id}</b><br>${fs == null ? "Never within 1 km of metro" : "Metro arrived <b>" + fs + "</b>"}`,
+        { sticky: true }
+      );
+    }
+  });
+  layer.addTo(tbMap);
+  invalidation.then(() => tbMap.removeLayer(layer));
 }
 
 //// CELL: side-effect — 1 km catchment rings (year-reactive, toggleable)
